@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#11161b">
+<meta name="color-scheme" content="dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="TankKarte">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>TankKarte — цены на топливо</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="icon" href="icon-192.png" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="map" aria-label="Карта заправок"></div>
+
+<!-- Верхняя панель: поиск, геолокация, фильтры -->
+<div class="topbar">
+  <form class="search" id="searchForm" role="search">
+    <span class="search-ico" aria-hidden="true">🔍</span>
+    <input id="searchInput" type="search" enterkeyhint="search" autocomplete="off"
+           placeholder="Город или адрес в Германии" aria-label="Населённый пункт">
+    <button type="button" class="ico-btn" id="locateBtn" title="Моё местоположение" aria-label="Моё местоположение">◎</button>
+    <button type="button" class="ico-btn" id="settingsBtn" title="Настройки" aria-label="Настройки">⚙</button>
+  </form>
+  <div class="filters">
+    <div class="seg" id="fuelSeg" role="radiogroup" aria-label="Вид топлива">
+      <button data-fuel="e5" role="radio">E5</button>
+      <button data-fuel="e10" role="radio">E10</button>
+      <button data-fuel="diesel" role="radio">Diesel</button>
+    </div>
+    <div class="seg" id="radiusSeg" role="radiogroup" aria-label="Радиус поиска">
+      <button data-rad="5" role="radio">5 км</button>
+      <button data-rad="10" role="radio">10</button>
+      <button data-rad="15" role="radio">15</button>
+      <button data-rad="25" role="radio">25</button>
+    </div>
+  </div>
+  <div class="banner" id="banner" hidden></div>
+</div>
+
+<!-- Нижняя выдвижная панель со списком -->
+<section class="sheet" id="sheet" data-state="peek" aria-label="Список заправок">
+  <div class="sheet-head" id="sheetHead">
+    <div class="grip" aria-hidden="true"></div>
+    <div class="sheet-row">
+      <div class="sheet-title">
+        <div id="sheetTitle">Поиск заправок…</div>
+        <div class="sub" id="sheetSub"></div>
+      </div>
+      <button class="ico-btn" id="refreshBtn" title="Обновить" aria-label="Обновить">⟳</button>
+    </div>
+    <div class="sheet-row">
+      <div class="seg small" id="sortSeg" role="radiogroup" aria-label="Сортировка">
+        <button data-sort="price" role="radio">По цене</button>
+        <button data-sort="dist" role="radio">По расстоянию</button>
+      </div>
+      <div class="sub" id="stats"></div>
+    </div>
+  </div>
+  <ul class="list" id="list"></ul>
+</section>
+
+<!-- Карточка заправки -->
+<section class="card" id="card" hidden aria-live="polite"></section>
+
+<!-- Настройки -->
+<dialog id="settings">
+  <form method="dialog" id="settingsForm">
+    <h2>Настройки</h2>
+    <label class="field">
+      <span>API-ключ Tankerkönig</span>
+      <input id="keyInput" autocomplete="off" spellcheck="false"
+             placeholder="00000000-0000-0000-0000-000000000000">
+    </label>
+    <p class="hint">
+      Бесплатный ключ: <a href="https://creativecommons.tankerkoenig.de/" target="_blank" rel="noopener">creativecommons.tankerkoenig.de</a>.
+      Хранится только на этом устройстве. Пустое поле — демо-ключ.
+    </p>
+    <label class="check"><input type="checkbox" id="hideClosed"> Скрывать закрытые заправки</label>
+    <p class="hint">
+      Данные: MTS-K через Tankerkönig (CC BY 4.0). Карта и геокодинг: © участники OpenStreetMap.
+    </p>
+    <div class="actions">
+      <button value="cancel" class="btn text">Отмена</button>
+      <button value="save" class="btn primary" id="saveSettings">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#11161b"/>
+  <circle cx="256" cy="256" r="196" fill="#1a2128"/>
+  <!-- колонка -->
+  <rect x="150" y="140" width="150" height="240" rx="22" fill="#5cc8ff"/>
+  <rect x="174" y="166" width="102" height="64" rx="10" fill="#11161b"/>
+  <rect x="130" y="370" width="190" height="28" rx="10" fill="#5cc8ff"/>
+  <!-- шланг -->
+  <path d="M300 200 h40 a24 24 0 0 1 24 24 v110 a18 18 0 0 0 36 0 V210 l-30 -34"
+        fill="none" stroke="#5cc8ff" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- капля-метка -->
+  <path d="M225 262 c0 0 -30 34 -30 54 a30 30 0 0 0 60 0 c0 -20 -30 -54 -30 -54z" fill="#7fdc95"/>
+</svg>
