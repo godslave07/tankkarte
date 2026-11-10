@@ -6,8 +6,11 @@ const DEMO_KEY = "00000000-0000-0000-0000-000000000002";
 const API_URL = "https://creativecommons.tankerkoenig.de/api/v4/stations/search";
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
 const OSRM_URL = "https://router.project-osrm.org/route/v1/driving/";   // маршруты по дорогам (OSM)
-/** «Лучший выбор» = ближайшая из заправок, чья цена не больше минимума + 2 цента. */
-const BEST_TOLERANCE = 0.02;
+/**
+ * «Лучший выбор» = самая низкая цена в радиусе; если таких заправок несколько — ближайшая из них.
+ * BEST_TOLERANCE — допуск к минимуму в €/л (0 = строго самая дешёвая; 0.01 = «дешевле на 1 ц не важно»).
+ */
+const BEST_TOLERANCE = 0;
 const AUTO_REFRESH_MS = 5 * 60 * 1000;   // ограничение Tankerkönig: не чаще раза в 5 минут
 const MANUAL_MIN_MS = 20 * 1000;         // защита от многократных нажатий «Обновить»
 const RADII = [5, 10, 15, 25];
@@ -380,7 +383,7 @@ function routeOrigin() {
   return c ? { lat: c.lat, lng: c.lng, isMe: false } : null;
 }
 
-/** Ближайшая среди самых дешёвых (цена ≤ минимум + 2 ц). Открытые важнее закрытых. */
+/** Самая дешёвая (± BEST_TOLERANCE), при равной цене — ближайшая. Открытые важнее закрытых. */
 function findBest(list) {
   const priced = list.filter(s => priceOf(s) != null);
   const pool = priced.some(s => s.isOpen) ? priced.filter(s => s.isOpen) : priced;
@@ -388,10 +391,13 @@ function findBest(list) {
   const min = Math.min(...pool.map(s => priceOf(s)));
   const o = routeOrigin();
   const dist = s => (o ? haversineKm(o, s) : s.dist);
-  return pool
-    .filter(s => priceOf(s) <= min + BEST_TOLERANCE + 1e-9)
-    .sort((a, b) => dist(a) - dist(b) || priceOf(a) - priceOf(b))[0];
+  const tier = pool
+    .filter(s => priceOf(s) <= min + BEST_TOLERANCE + 1e-6)
+    .sort((a, b) => dist(a) - dist(b) || priceOf(a) - priceOf(b));
+  bestTierSize = tier.length;
+  return tier[0];
 }
+let bestTierSize = 0;
 
 const gmapsUrl = s => `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lng}&travelmode=driving`;
 
@@ -471,7 +477,7 @@ function renderBest() {
   el.innerHTML = `
     <div class="bp" style="--c:${scale.color(p) || "var(--ok)"}">${fmtPrice(p)}</div>
     <div class="bi">
-      <div class="bt">⭐ Лучший выбор · ${fuel}</div>
+      <div class="bt">⭐ Дешевле всех · ${fuel}${bestTierSize > 1 ? ` · ближайшая из ${bestTierSize}` : ""}</div>
       <div class="bn">${esc(s.brand || s.name)}</div>
       <div class="bm" id="bestRoute">${routeText(s)} <span class="muted">· ${s.isOpen ? "открыто" : "закрыто"}</span></div>
     </div>
@@ -527,7 +533,7 @@ function renderMarkers(list) {
       s.isOpen ? "" : "closed", s.id === state.selectedId ? "sel" : ""].join(" ");
     const icon = L.divIcon({
       className: "pin-wrap",
-      html: `<div class="${cls}" style="--c:${scale.color(p) || "#9aa6b2"}">${isBest ? '<span class="tag">⭐ ЛУЧШИЙ</span>' : ""}${fmtPrice(p)}</div>`,
+      html: `<div class="${cls}" style="--c:${scale.color(p) || "#9aa6b2"}">${isBest ? '<span class="tag">⭐ ДЕШЕВЛЕ ВСЕХ</span>' : ""}${fmtPrice(p)}</div>`,
       iconSize: [0, 0],
       iconAnchor: [0, 0],
     });
@@ -624,7 +630,7 @@ function renderCard(s) {
   card.innerHTML = `
     <div class="card-head">
       <div class="t">
-        ${s.id === state.bestId ? '<div class="best-badge">⭐ ЛУЧШИЙ ВЫБОР</div>' : ""}
+        ${s.id === state.bestId ? '<div class="best-badge">⭐ САМАЯ НИЗКАЯ ЦЕНА</div>' : ""}
         ${showBrand ? `<div class="brand">${esc(s.brand)}</div>` : ""}
         <h2>${esc(s.name || s.brand)}</h2>
         <div class="addr">${esc(addr)}</div>

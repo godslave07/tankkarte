@@ -1,6 +1,6 @@
 /* Service worker: оболочка приложения и Leaflet — офлайн, тайлы карты — кэш просмотренных.
  * Цены (Tankerkönig), маршруты (OSRM) и геокодинг здесь не кэшируются: последние цены хранит app.js в localStorage. */
-const VERSION = "v4";
+const VERSION = "v5";
 const SHELL = `tk-shell-${VERSION}`;
 const TILES = `tk-tiles-${VERSION}`;
 const MAX_TILES = 600;
@@ -70,7 +70,8 @@ async function cacheFirst(req, cacheName, trim) {
 async function networkFirst(req) {
   const cache = await caches.open(SHELL);
   try {
-    const resp = await fetch(req);
+    // no-cache: всегда сверяться с сервером, чтобы обновления приложения приходили сразу
+    const resp = await fetch(req, { cache: "no-cache" });
     if (resp.ok) cache.put(req, resp.clone());
     return resp;
   } catch {

@@ -123,19 +123,19 @@ sup { font-size: .62em; }
 .sub { color: var(--muted); font-size: 12px; font-weight: 600; }
 
 /* блок «Лучший выбор» */
-.best { display: flex; align-items: center; gap: 12px; background: linear-gradient(135deg, #e3f7ff, #f2fbff);
+.best-card { display: flex; align-items: center; gap: 12px; background: linear-gradient(135deg, #e3f7ff, #f2fbff);
   border: 2px solid #bfeeff; border-radius: 20px; padding: 10px 10px 10px 12px; margin-bottom: 10px; cursor: pointer; }
-.best { gap: 10px; }
-.best .bp { flex: none; min-width: 64px; text-align: center; background: var(--c, var(--ok)); color: #fff;
+.best-card { gap: 10px; }
+.best-card .bp { flex: none; min-width: 64px; text-align: center; background: var(--c, var(--ok)); color: #fff;
   font-weight: 900; font-size: 17px; padding: 8px 5px; border-radius: 14px; font-variant-numeric: tabular-nums;
   border: 2.5px solid #fff; box-shadow: var(--shadow-sm); }
-.best .bi { flex: 1; min-width: 0; }
-.best .bi > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.best .bt { font-size: 11px; font-weight: 900; color: #8a6400; text-transform: uppercase; letter-spacing: .03em; }
-.best .btn.go { padding: 10px 13px; font-size: 14px; }
-.best .bn { font-weight: 800; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.best .bm { font-size: 13px; color: var(--text); font-weight: 700; }
-.best .bm .muted { color: var(--muted); font-weight: 600; }
+.best-card .bi { flex: 1; min-width: 0; }
+.best-card .bi > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.best-card .bt { font-size: 11px; font-weight: 900; color: #8a6400; text-transform: uppercase; letter-spacing: .03em; }
+.best-card .btn.go { padding: 10px 13px; font-size: 14px; }
+.best-card .bn { font-weight: 800; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.best-card .bm { font-size: 13px; color: var(--text); font-weight: 700; }
+.best-card .bm .muted { color: var(--muted); font-weight: 600; }
 
 .list { list-style: none; margin: 0; padding: 4px 8px calc(16px + var(--safe-bottom)); overflow-y: auto; flex: 1;
   touch-action: pan-y; overscroll-behavior: contain; border-top: 1px solid var(--line); }
