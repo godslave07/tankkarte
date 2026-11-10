@@ -5,6 +5,9 @@
 const DEMO_KEY = "00000000-0000-0000-0000-000000000002";
 const API_URL = "https://creativecommons.tankerkoenig.de/api/v4/stations/search";
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
+const OSRM_URL = "https://router.project-osrm.org/route/v1/driving/";   // маршруты по дорогам (OSM)
+/** «Лучший выбор» = ближайшая из заправок, чья цена не больше минимума + 2 цента. */
+const BEST_TOLERANCE = 0.02;
 const AUTO_REFRESH_MS = 5 * 60 * 1000;   // ограничение Tankerkönig: не чаще раза в 5 минут
 const MANUAL_MIN_MS = 20 * 1000;         // защита от многократных нажатий «Обновить»
 const RADII = [5, 10, 15, 25];
@@ -42,6 +45,7 @@ const state = {
   me: null,            // { lat, lng, acc }
   data: null,          // { center, radius, fetchedAt, stations }  — тоже кэшируется
   selectedId: null,
+  bestId: null,
   loading: false,
   offline: false,
 };
@@ -231,7 +235,12 @@ let watchId = null;
 function startWatching() {
   if (watchId != null || !("geolocation" in navigator)) return;
   watchId = navigator.geolocation.watchPosition(
-    p => { state.me = toPos(p); drawMe(); },
+    p => {
+      state.me = toPos(p);
+      drawMe();
+      // Сдвинулись заметно — пересчитать «лучший выбор» и маршрут (не чаще раза в 20 с).
+      if (lastRouteOrigin && haversineKm(state.me, lastRouteOrigin) > 0.3 && Date.now() - lastRouteAt > 20000) renderAll();
+    },
     err => console.warn("watchPosition", err.code, err.message),
     { enableHighAccuracy: true, maximumAge: 30000 },
   );
@@ -241,9 +250,11 @@ function startWatching() {
 const map = L.map("map", { zoomControl: false, attributionControl: true, worldCopyJump: true })
   .setView([GERMANY.lat, GERMANY.lng], GERMANY.zoom);
 L.control.zoom({ position: "topright" }).addTo(map);
+// Светлая карта OpenStreetMap (без ключа; лёгкое «смягчение» цветов — в style.css).
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19,
   attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · ' +
+    'Маршруты: <a href="https://project-osrm.org/">OSRM</a> · ' +
     'Цены: <a href="https://creativecommons.tankerkoenig.de/">Tankerkönig</a> (CC BY 4.0)',
 }).addTo(map);
 map.attributionControl.setPrefix(false);
@@ -256,7 +267,7 @@ function drawCenter() {
   const c = state.center;
   if (!c) return;
   const ll = [c.lat, c.lng];
-  const style = { color: "#5cc8ff", weight: 2, fillColor: "#5cc8ff", fillOpacity: 0.07, dashArray: "6 6", interactive: false };
+  const style = { color: "#1a9fff", weight: 2.5, fillColor: "#33ccff", fillOpacity: 0.06, dashArray: "8 8", interactive: false };
   if (!radiusCircle) radiusCircle = L.circle(ll, { ...style, radius: state.radius * 1000 }).addTo(map);
   else radiusCircle.setLatLng(ll).setRadius(state.radius * 1000);
 
@@ -357,20 +368,143 @@ function makeColorScale(list) {
   return { color, min, max, avg, count: prices.length };
 }
 
+// ============================ Лучший выбор и маршрут ============================
+const byId = id => (id ? visibleStations().find(s => s.id === id) : null);
+
+/** Откуда строим маршрут: от меня, если я рядом с зоной поиска, иначе от центра поиска. */
+function routeOrigin() {
+  const c = state.data?.center || state.center;
+  if (state.me && (!c || c.kind === "location" || haversineKm(state.me, c) < 60)) {
+    return { lat: state.me.lat, lng: state.me.lng, isMe: true };
+  }
+  return c ? { lat: c.lat, lng: c.lng, isMe: false } : null;
+}
+
+/** Ближайшая среди самых дешёвых (цена ≤ минимум + 2 ц). Открытые важнее закрытых. */
+function findBest(list) {
+  const priced = list.filter(s => priceOf(s) != null);
+  const pool = priced.some(s => s.isOpen) ? priced.filter(s => s.isOpen) : priced;
+  if (!pool.length) return null;
+  const min = Math.min(...pool.map(s => priceOf(s)));
+  const o = routeOrigin();
+  const dist = s => (o ? haversineKm(o, s) : s.dist);
+  return pool
+    .filter(s => priceOf(s) <= min + BEST_TOLERANCE + 1e-9)
+    .sort((a, b) => dist(a) - dist(b) || priceOf(a) - priceOf(b))[0];
+}
+
+const gmapsUrl = s => `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lng}&travelmode=driving`;
+
+const routeLayer = L.layerGroup().addTo(map);
+const routeCache = new Map();     // "origin>stationId" → { coords, km, min, straight }
+let routeSeq = 0, lastRouteOrigin = null, lastRouteAt = 0;
+const routeKey = (o, s) => `${o.lat.toFixed(3)},${o.lng.toFixed(3)}>${s.id}`;
+
+async function fetchRoute(o, s) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const url = `${OSRM_URL}${o.lng.toFixed(5)},${o.lat.toFixed(5)};${s.lng.toFixed(5)},${s.lat.toFixed(5)}` +
+      "?overview=full&geometries=geojson";
+    const resp = await fetch(url, { signal: ctrl.signal });
+    const body = await resp.json();
+    const r = body?.routes?.[0];
+    if (!resp.ok || body.code !== "Ok" || !r) throw new Error(body?.message || "no route");
+    return { coords: r.geometry.coordinates.map(([x, y]) => [y, x]), km: r.distance / 1000, min: r.duration / 60, straight: false };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Маршрут к выбранной заправке, а если ничего не выбрано — к «лучшему выбору». */
+async function updateRoute() {
+  const target = byId(state.selectedId) || byId(state.bestId);
+  const o = routeOrigin();
+  if (!target || !o) { routeLayer.clearLayers(); renderRouteInfo(); return; }
+  const key = routeKey(o, target);
+  const seq = ++routeSeq;
+  lastRouteOrigin = { lat: o.lat, lng: o.lng };
+  lastRouteAt = Date.now();
+  let r = routeCache.get(key);
+  if (!r) {
+    const straight = { coords: [[o.lat, o.lng], [target.lat, target.lng]], km: haversineKm(o, target), straight: true };
+    drawRoute(straight, true);                      // пока ждём ответ — пунктир по прямой
+    try { r = await fetchRoute(o, target); routeCache.set(key, r); }
+    catch (e) { console.warn("OSRM:", e.message); r = straight; }
+    if (seq !== routeSeq) return;
+  }
+  drawRoute(r, false);
+  renderRouteInfo();
+}
+
+function drawRoute(r, pending) {
+  routeLayer.clearLayers();
+  const opts = { interactive: false, lineCap: "round", lineJoin: "round" };
+  if (r.straight) {
+    L.polyline(r.coords, { ...opts, color: "#1a9fff", weight: 4, opacity: pending ? 0.5 : 0.8, dashArray: "2 10" }).addTo(routeLayer);
+  } else {
+    L.polyline(r.coords, { ...opts, color: "#ffffff", weight: 11, opacity: 1 }).addTo(routeLayer);
+    L.polyline(r.coords, { ...opts, color: "#1a9fff", weight: 6, opacity: 1 }).addTo(routeLayer);
+  }
+}
+
+/** Текст «🚗 7,2 км · 11 мин» (по дороге) или «📏 6,1 км по прямой». */
+function routeText(s) {
+  const o = routeOrigin();
+  if (!o || !s) return "";
+  const r = routeCache.get(routeKey(o, s));
+  const from = o.isMe ? "" : " от центра поиска";
+  if (r && !r.straight) return `🚗 ${fmtKm(r.km)} · ${fmtDuration(r.min)}${from}`;
+  return `📏 ${fmtKm(haversineKm(o, s))} по прямой${from}`;
+}
+function fmtDuration(min) {
+  const m = Math.max(1, Math.round(min));
+  return m < 60 ? `${m} мин` : `${Math.floor(m / 60)} ч ${m % 60} мин`;
+}
+
+function renderBest() {
+  const el = $("best");
+  const s = byId(state.bestId);
+  if (!s) { el.hidden = true; return; }
+  const p = priceOf(s);
+  const fuel = FUELS.find(f => f.id === state.fuel).short;
+  el.innerHTML = `
+    <div class="bp" style="--c:${scale.color(p) || "var(--ok)"}">${fmtPrice(p)}</div>
+    <div class="bi">
+      <div class="bt">⭐ Лучший выбор · ${fuel}</div>
+      <div class="bn">${esc(s.brand || s.name)}</div>
+      <div class="bm" id="bestRoute">${routeText(s)} <span class="muted">· ${s.isOpen ? "открыто" : "закрыто"}</span></div>
+    </div>
+    <a class="btn go" href="${gmapsUrl(s)}" target="_blank" rel="noopener" title="Маршрут в Google Maps">🧭 Поехать</a>`;
+  el.hidden = false;
+}
+
+function renderRouteInfo() {
+  const best = byId(state.bestId);
+  const br = $("bestRoute");
+  if (best && br) br.innerHTML = `${routeText(best)} <span class="muted">· ${best.isOpen ? "открыто" : "закрыто"}</span>`;
+  const sel = byId(state.selectedId);
+  const cr = $("cardRoute");
+  if (sel && cr) cr.textContent = routeText(sel);
+}
+
 // ============================ Отрисовка ============================
 let scale = makeColorScale([]);
 
 function renderAll() {
   const list = visibleStations();
   scale = makeColorScale(list);
+  state.bestId = findBest(list)?.id ?? null;
   renderMarkers(list);
   renderList(list);
+  renderBest();
   renderSheetHeader(list);
   renderControls();
   if (state.selectedId) {
     const s = list.find(x => x.id === state.selectedId);
-    if (s) renderCard(s); else closeCard();
+    if (s) renderCard(s); else closeCard({ route: false });
   }
+  updateRoute();
 }
 
 // При мелком масштабе подписи с ценой только у самых дешёвых, остальные — цветные точки.
@@ -385,20 +519,21 @@ function renderMarkers(list) {
   const sorted = [...list].sort((a, b) => (priceOf(b) ?? 99) - (priceOf(a) ?? 99)); // дешёвые рисуем поверх
   sorted.forEach((s, i) => {
     const p = priceOf(s);
-    const cheapest = p != null && p === scale.min && scale.max > scale.min;
+    const isBest = s.id === state.bestId;
     const rankFromCheapest = sorted.length - 1 - i;
-    const dot = compactMode && s.id !== state.selectedId && (p == null || rankFromCheapest >= LABELS_WHEN_COMPACT);
-    const cls = ["pin", p == null ? "none" : "", dot ? "dot" : "", s.isOpen ? "" : "closed",
-      s.id === state.selectedId ? "sel" : ""].join(" ");
+    const dot = compactMode && !isBest && s.id !== state.selectedId &&
+      (p == null || rankFromCheapest >= LABELS_WHEN_COMPACT);
+    const cls = ["pin", p == null ? "none" : "", dot ? "dot" : "", isBest ? "best" : "",
+      s.isOpen ? "" : "closed", s.id === state.selectedId ? "sel" : ""].join(" ");
     const icon = L.divIcon({
       className: "pin-wrap",
-      html: `<div class="${cls}" style="--c:${scale.color(p) || "#4b5560"}">${cheapest ? '<span class="star">★</span>' : ""}${fmtPrice(p)}</div>`,
+      html: `<div class="${cls}" style="--c:${scale.color(p) || "#9aa6b2"}">${isBest ? '<span class="tag">⭐ ЛУЧШИЙ</span>' : ""}${fmtPrice(p)}</div>`,
       iconSize: [0, 0],
       iconAnchor: [0, 0],
     });
     const m = L.marker([s.lat, s.lng], {
       icon,
-      zIndexOffset: s.id === state.selectedId ? 100000 : i * 10,
+      zIndexOffset: s.id === state.selectedId ? 100000 : isBest ? 90000 : i * 10,
       title: `${s.brand || s.name}: ${p == null ? "нет цены" : fmtPlain(p) + " €"}`,
       keyboard: true,
     });
@@ -427,13 +562,14 @@ function renderList(list) {
     return `<li data-id="${esc(s.id)}" class="${s.id === state.selectedId ? "sel" : ""}">
       <div class="price" style="--c:${scale.color(p) || "#4b5560"}">${fmtPrice(p)}</div>
       <div class="info">
-        <div class="name">${esc(s.brand || s.name)}</div>
+        <div class="name">${s.id === state.bestId ? '<span class="star">⭐</span> ' : ""}${esc(s.brand || s.name)}</div>
         <div class="addr">${esc([s.street, s.place].filter(Boolean).join(", "))}</div>
       </div>
       <div class="meta">
         <div>${fmtKm(s.dist)}</div>
         <div class="${s.isOpen ? "open" : "closed-txt"}">${s.isOpen ? "открыто" : "закрыто"}</div>
       </div>
+      <a class="go-mini" href="${gmapsUrl(s)}" target="_blank" rel="noopener" title="Маршрут в Google Maps" aria-label="Маршрут в Google Maps">🧭</a>
     </li>`;
   }).join("");
 }
@@ -482,13 +618,13 @@ function renderCard(s) {
     ? `${fmtKm(s.dist)} от вас`
     : `${fmtKm(s.dist)} от точки поиска${fromMe != null ? ` · ${fmtKm(fromMe)} от вас` : ""}`;
   const lastTs = Math.max(0, ...Object.values(s.prices).map(p => p.ts || 0)) || null;
-  const route = `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lng}`;
   const addr = [s.street, [s.postalCode, s.place].filter(Boolean).join(" ")].filter(Boolean).join(", ");
   const showBrand = s.brand && s.brand.toLowerCase() !== s.name.toLowerCase();
 
   card.innerHTML = `
     <div class="card-head">
       <div class="t">
+        ${s.id === state.bestId ? '<div class="best-badge">⭐ ЛУЧШИЙ ВЫБОР</div>' : ""}
         ${showBrand ? `<div class="brand">${esc(s.brand)}</div>` : ""}
         <h2>${esc(s.name || s.brand)}</h2>
         <div class="addr">${esc(addr)}</div>
@@ -496,8 +632,9 @@ function renderCard(s) {
       <button class="ico-btn" id="cardClose" aria-label="Закрыть">✕</button>
     </div>
     <div class="chips">
+      <span class="chip route" id="cardRoute">${routeText(s)}</span>
       <span class="chip ${s.isOpen ? "open" : "closed-txt"}">${s.isOpen ? "● Открыто" : "● Закрыто"}</span>
-      <span class="chip">📏 ${distTxt}</span>
+      <span class="chip">📍 ${distTxt}</span>
       <span class="chip">🕒 цена изменена ${fmtTime(lastTs)}</span>
     </div>
     <div class="fuels">
@@ -513,7 +650,7 @@ function renderCard(s) {
       }).join("")}
     </div>
     <div class="row-btns">
-      <a class="btn primary" href="${route}" target="_blank" rel="noopener">🧭 Маршрут</a>
+      <a class="btn primary" href="${gmapsUrl(s)}" target="_blank" rel="noopener">🧭 Поехать — Google Maps</a>
       <button class="btn tonal" id="cardList">Список</button>
     </div>`;
   card.hidden = false;
@@ -539,15 +676,17 @@ function selectStation(id, { pan = true } = {}) {
   }
   document.querySelectorAll("#list li").forEach(li => li.classList.toggle("sel", li.dataset.id === id));
   if (pan) panToVisible(s.lat, s.lng);
+  updateRoute();   // маршрут переключается на выбранную заправку
 }
 
-function closeCard() {
+function closeCard({ route = true } = {}) {
   const id = state.selectedId;
   state.selectedId = null;
   $("card").hidden = true;
   $("sheet").classList.remove("hidden-by-card");
   markers.get(id)?.getElement()?.querySelector(".pin")?.classList.remove("sel");
   document.querySelectorAll("#list li.sel").forEach(li => li.classList.remove("sel"));
+  if (route) updateRoute();   // маршрут возвращается к «лучшему выбору»
 }
 
 // ============================ Загрузка ============================
@@ -602,6 +741,7 @@ async function searchMyLocation(opts = {}) {
   $("locateBtn").classList.add("spin");
   try {
     state.me = await getPosition();
+    showDefaultBanner();   // убрать старую ошибку геолокации
     drawMe();
     startWatching();
     await load({ lat: state.me.lat, lng: state.me.lng, label: "Рядом со мной", kind: "location" }, opts);
@@ -746,8 +886,13 @@ $("sortSeg").onclick = e => {
   $("list").scrollTop = 0;
 };
 $("list").onclick = e => {
+  if (e.target.closest("a")) return;   // кнопка Google Maps — без выбора строки
   const li = e.target.closest("li[data-id]");
   if (li) selectStation(li.dataset.id);
+};
+$("best").onclick = e => {
+  if (e.target.closest("a")) return;
+  if (state.bestId) selectStation(state.bestId);
 };
 document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("card").hidden) closeCard(); });
 
@@ -758,6 +903,11 @@ document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("card")
   new ResizeObserver(() => {
     document.documentElement.style.setProperty("--top-h", `${Math.ceil(topbar.getBoundingClientRect().bottom)}px`);
   }).observe(topbar);
+  // Высота шапки нижней панели = сколько панели видно в свёрнутом виде.
+  const head = $("sheetHead");
+  new ResizeObserver(() => {
+    document.documentElement.style.setProperty("--peek", `${Math.ceil(head.offsetHeight)}px`);
+  }).observe(head);
   renderControls();
   // Сначала показываем кэш (работает и без сети), потом обновляем по геолокации.
   const cached = store.get("tk.last", null);

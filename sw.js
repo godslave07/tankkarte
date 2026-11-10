@@ -1,6 +1,6 @@
 /* Service worker: оболочка приложения и Leaflet — офлайн, тайлы карты — кэш просмотренных.
- * Цены (Tankerkönig) и геокодинг здесь не кэшируются: последние цены хранит app.js в localStorage. */
-const VERSION = "v2";
+ * Цены (Tankerkönig), маршруты (OSRM) и геокодинг здесь не кэшируются: последние цены хранит app.js в localStorage. */
+const VERSION = "v4";
 const SHELL = `tk-shell-${VERSION}`;
 const TILES = `tk-tiles-${VERSION}`;
 const MAX_TILES = 600;
@@ -34,8 +34,8 @@ self.addEventListener("fetch", event => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
 
-  // Тайлы OSM: сначала кэш, затем сеть (с ограничением размера кэша).
-  if (url.hostname.endsWith("tile.openstreetmap.org")) {
+  // Тайлы карты (CARTO / OSM): сначала кэш, затем сеть (с ограничением размера кэша).
+  if (url.hostname.endsWith("tile.openstreetmap.org") || url.hostname.endsWith("basemaps.cartocdn.com")) {
     event.respondWith(cacheFirst(req, TILES, true));
     return;
   }
