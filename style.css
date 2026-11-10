@@ -49,6 +49,15 @@ sup { font-size: .62em; }
 .topbar > * { pointer-events: auto; }
 .search { display: flex; align-items: center; gap: 2px; background: var(--surface); border-radius: 26px;
   padding: 0 4px 0 16px; height: 52px; box-shadow: var(--shadow); }
+.search { position: relative; }
+.suggest { position: absolute; left: 0; right: 0; top: calc(100% + 6px); margin: 0; padding: 6px; list-style: none;
+  background: var(--surface); border-radius: 20px; box-shadow: var(--shadow); z-index: 5; max-height: 60vh; overflow-y: auto; }
+.suggest li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; cursor: pointer; }
+.suggest li:hover, .suggest li.active { background: var(--surface-2); }
+.suggest .s-ico { font-size: 16px; flex: none; }
+.suggest .s-txt { display: grid; min-width: 0; }
+.suggest b { font-size: 15px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.suggest small { color: var(--muted); font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .search-ico { font-size: 15px; opacity: .55; }
 .search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--text);
   font: inherit; font-size: 16px; font-weight: 600; padding: 0 8px; height: 100%; }

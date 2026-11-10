@@ -26,9 +26,10 @@
   <form class="search" id="searchForm" role="search">
     <span class="search-ico" aria-hidden="true">🔍</span>
     <input id="searchInput" type="search" enterkeyhint="search" autocomplete="off"
-           placeholder="Город или адрес в Германии" aria-label="Населённый пункт">
+           placeholder="Город или адрес в Германии" aria-label="Населённый пункт" role="combobox" aria-controls="suggest" aria-expanded="false" aria-autocomplete="list">
     <button type="button" class="ico-btn" id="locateBtn" title="Моё местоположение" aria-label="Моё местоположение">◎</button>
     <button type="button" class="ico-btn" id="settingsBtn" title="Настройки" aria-label="Настройки">⚙</button>
+    <ul class="suggest" id="suggest" role="listbox" aria-label="Подсказки" hidden></ul>
   </form>
   <div class="filters">
     <div class="seg" id="fuelSeg" role="radiogroup" aria-label="Вид топлива">
@@ -83,7 +84,7 @@
     </label>
     <p class="hint">
       Бесплатный ключ: <a href="https://creativecommons.tankerkoenig.de/" target="_blank" rel="noopener">creativecommons.tankerkoenig.de</a>.
-      Хранится только на этом устройстве. Пустое поле — демо-ключ.
+      Необязательно: без него используется общий ключ. Свой ключ хранится только на этом устройстве.
     </p>
     <label class="check"><input type="checkbox" id="hideClosed"> Скрывать закрытые заправки</label>
     <p class="hint">

@@ -5,6 +5,8 @@
 const DEMO_KEY = "00000000-0000-0000-0000-000000000002";
 const API_URL = "https://creativecommons.tankerkoenig.de/api/v4/stations/search";
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
+const PHOTON_URL = "https://photon.komoot.io/api/";   // подсказки при вводе (Nominatim автодополнение запрещает)
+const DE_BBOX = "5.86,47.27,15.05,55.06";
 const OSRM_URL = "https://router.project-osrm.org/route/v1/driving/";   // маршруты по дорогам (OSM)
 /**
  * «Лучший выбор» = самая низкая цена в радиусе; если таких заправок несколько — ближайшая из них.
@@ -110,10 +112,7 @@ function showBanner(html, kind = "info") {
   b.querySelector("[data-open-settings]")?.addEventListener("click", openSettings);
 }
 function hideBanner() { $("banner").hidden = true; }
-function showDefaultBanner() {
-  if (!settings.apiKey) showBanner(`Демо-ключ Tankerkönig. <button data-open-settings>Указать свой ключ</button>`);
-  else hideBanner();
-}
+function showDefaultBanner() { hideBanner(); }
 
 // ============================ Данные: Tankerkönig ============================
 class NetworkError extends Error {}
@@ -179,6 +178,32 @@ async function geocode(query) {
   const [place] = await resp.json();
   if (!place) throw new Error(`«${query}» не найден в Германии`);
   return { lat: +place.lat, lng: +place.lon, label: place.name || place.display_name.split(",")[0] || query, kind: "city" };
+}
+
+/** Подсказки населённых пунктов Германии по мере ввода (Photon / OSM). */
+async function suggestPlaces(query, signal) {
+  const url = new URL(PHOTON_URL);
+  url.search = new URLSearchParams({ q: query, limit: 12, lang: "de", bbox: DE_BBOX, osm_tag: "place" });
+  const resp = await fetch(url, { signal });
+  if (!resp.ok) throw new Error(`Photon ${resp.status}`);
+  const body = await resp.json();
+  const seen = new Set();
+  const out = [];
+  for (const f of body.features || []) {
+    const p = f.properties || {};
+    if (p.countrycode && p.countrycode.toUpperCase() !== "DE") continue;
+    const [lng, lat] = f.geometry?.coordinates || [];
+    if (lat == null || !p.name) continue;
+    const parts = [p.postcode, p.city && p.city !== p.name ? p.city : null, p.county, p.state]
+      .filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
+    const sub = parts.join(", ");
+    const key = `${p.name}|${p.county || p.state || ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ lat, lng, label: p.name, sub, kind: "city" });
+    if (out.length >= 7) break;
+  }
+  return out;
 }
 
 class GeoError extends Error {
@@ -318,19 +343,6 @@ function panToVisible(lat, lng) {
 
 map.on("zoomend", () => {
   if (state.data && (map.getZoom() < COMPACT_ZOOM) !== compactMode) renderMarkers(visibleStations());
-});
-
-// Клик по карте — искать вокруг выбранной точки.
-map.on("click", e => {
-  const { lat, lng } = e.latlng;
-  const btn = L.DomUtil.create("button", "btn primary");
-  btn.textContent = "🔍 Искать здесь";
-  btn.style.cssText = "padding:8px 14px;white-space:nowrap";
-  btn.onclick = () => {
-    map.closePopup();
-    load({ lat, lng, label: "Точка на карте", kind: "point" });
-  };
-  L.popup({ closeButton: false, offset: [0, -4] }).setLatLng(e.latlng).setContent(btn).openOn(map);
 });
 
 // ============================ Вычисления над списком ============================
@@ -556,7 +568,7 @@ function renderList(list) {
     return;
   }
   if (!state.data) {
-    el.innerHTML = `<li class="empty">Разрешите геолокацию, введите город или нажмите на карту.</li>`;
+    el.innerHTML = `<li class="empty">Разрешите геолокацию или введите город.</li>`;
     return;
   }
   if (!list.length) {
@@ -755,7 +767,7 @@ async function searchMyLocation(opts = {}) {
     if (opts.silent) return;   // фоновое обновление — без лишнего шума
     showBanner(
       `<b>${esc(e.message)}</b>${e.hint ? `<div class="hint-line">${esc(e.hint)}</div>` : ""}` +
-      `<div class="hint-line">Или введите населённый пункт / нажмите на карту. ` +
+      `<div class="hint-line">Или введите населённый пункт. ` +
       `<button data-retry-geo>Повторить</button></div>`, "error");
     $("banner").querySelector("[data-retry-geo]")?.addEventListener("click", () => searchMyLocation());
     if (!state.data) renderAll();
@@ -865,12 +877,81 @@ $("settings").addEventListener("close", () => {
 });
 
 // ============================ События интерфейса ============================
+// --- Подсказки при вводе города ---
+const sugg = { items: [], active: -1, timer: 0, ctrl: null, lastQ: "" };
+const suggestEl = $("suggest");
+
+function hideSuggest() {
+  clearTimeout(sugg.timer);
+  sugg.ctrl?.abort();
+  sugg.items = []; sugg.active = -1; sugg.lastQ = "";
+  suggestEl.hidden = true;
+  $("searchInput").setAttribute("aria-expanded", "false");
+}
+function renderSuggest() {
+  if (!sugg.items.length) { suggestEl.hidden = true; $("searchInput").setAttribute("aria-expanded", "false"); return; }
+  suggestEl.innerHTML = sugg.items.map((it, i) =>
+    `<li role="option" data-i="${i}" class="${i === sugg.active ? "active" : ""}" aria-selected="${i === sugg.active}">` +
+    `<span class="s-ico" aria-hidden="true">📍</span><span class="s-txt"><b>${esc(it.label)}</b>` +
+    `${it.sub ? `<small>${esc(it.sub)}</small>` : ""}</span></li>`).join("");
+  suggestEl.hidden = false;
+  $("searchInput").setAttribute("aria-expanded", "true");
+}
+function pickSuggestion(it) {
+  hideSuggest();
+  $("searchInput").value = it.label;
+  $("searchInput").blur();
+  load({ lat: it.lat, lng: it.lng, label: it.label, kind: "city" });
+}
+
+$("searchInput").addEventListener("input", () => {
+  const q = $("searchInput").value.trim();
+  clearTimeout(sugg.timer);
+  if (q.length < 2) { hideSuggest(); return; }
+  sugg.timer = setTimeout(async () => {
+    if (q === sugg.lastQ) return;
+    sugg.ctrl?.abort();
+    sugg.ctrl = new AbortController();
+    try {
+      const items = await suggestPlaces(q, sugg.ctrl.signal);
+      if ($("searchInput").value.trim() !== q || document.activeElement !== $("searchInput")) return;
+      sugg.lastQ = q; sugg.items = items; sugg.active = -1;
+      renderSuggest();
+    } catch (e) {
+      if (e.name !== "AbortError") console.warn("suggest:", e);
+    }
+  }, 250);
+});
+$("searchInput").addEventListener("keydown", e => {
+  if (suggestEl.hidden || !sugg.items.length) return;
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    const n = sugg.items.length;
+    // цикл по вариантам: -1 (ничего) → 0 … n-1 → -1
+    const pos = (sugg.active + 1 + (e.key === "ArrowDown" ? 1 : -1) + n + 1) % (n + 1);
+    sugg.active = pos - 1;
+    renderSuggest();
+  } else if (e.key === "Escape") {
+    hideSuggest();
+  }
+});
+$("searchInput").addEventListener("blur", () => setTimeout(hideSuggest, 150));
+// pointerdown + preventDefault: поле не теряет фокус до выбора варианта
+suggestEl.addEventListener("pointerdown", e => e.preventDefault());
+suggestEl.addEventListener("click", e => {
+  const li = e.target.closest("li[data-i]");
+  if (li) pickSuggestion(sugg.items[+li.dataset.i]);
+});
+
 $("searchForm").addEventListener("submit", e => {
   e.preventDefault();
+  const chosen = sugg.items[sugg.active];
+  if (chosen) { pickSuggestion(chosen); return; }
+  hideSuggest();
   $("searchInput").blur();
   searchPlace($("searchInput").value);
 });
-$("locateBtn").onclick = () => { $("searchInput").value = ""; searchMyLocation(); };
+$("locateBtn").onclick = () => { hideSuggest(); $("searchInput").value = ""; searchMyLocation(); };
 $("settingsBtn").onclick = openSettings;
 $("refreshBtn").onclick = () => refresh({ manual: true });
 
