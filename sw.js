@@ -1,11 +1,11 @@
 /* Service worker: оболочка приложения и Leaflet — офлайн, тайлы карты — кэш просмотренных.
  * Цены (Tankerkönig), маршруты (OSRM) и геокодинг здесь не кэшируются: последние цены хранит app.js в localStorage. */
-const VERSION = "v8";
+const VERSION = "v9";
 const SHELL = `tk-shell-${VERSION}`;
 const TILES = `tk-tiles-${VERSION}`;
 const MAX_TILES = 600;
 
-const SHELL_FILES = ["./", "index.html", "style.css", "app.js", "manifest.webmanifest", "icon.svg",
+const SHELL_FILES = ["./", "index.html", "style.css", "i18n.js", "app.js", "manifest.webmanifest", "icon.svg",
   "icon-192.png", "icon-512.png", "icon-maskable-512.png", "apple-touch-icon.png"];
 const CDN_FILES = [
   "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
@@ -83,7 +83,7 @@ async function networkFirst(req) {
 
 // ---------- Утреннее уведомление (push из GitHub Actions) ----------
 function showPush(data) {
-  const actions = data.route ? [{ action: "route", title: "🧭 Маршрут к №1" }] : [];
+  const actions = data.route ? [{ action: "route", title: data.action || "🧭 Маршрут к №1" }] : [];
   return self.registration.showNotification(data.title || "TankKarte", {
     body: data.body || "",
     icon: "icon-192.png",

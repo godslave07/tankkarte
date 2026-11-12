@@ -19,26 +19,26 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="map" aria-label="Карта заправок"></div>
+<div id="map" data-i18n-aria="mapAria" aria-label="Карта заправок"></div>
 
 <!-- Верхняя панель: поиск, геолокация, фильтры -->
 <div class="topbar">
   <form class="search" id="searchForm" role="search">
     <span class="search-ico" aria-hidden="true">🔍</span>
     <input id="searchInput" type="search" enterkeyhint="search" autocomplete="off"
-           placeholder="Город или адрес в Германии" aria-label="Населённый пункт" role="combobox" aria-controls="suggest" aria-expanded="false" aria-autocomplete="list">
-    <button type="button" class="ico-btn" id="locateBtn" title="Моё местоположение" aria-label="Моё местоположение">◎</button>
-    <button type="button" class="ico-btn" id="settingsBtn" title="Настройки" aria-label="Настройки">⚙</button>
-    <ul class="suggest" id="suggest" role="listbox" aria-label="Подсказки" hidden></ul>
+           data-i18n-ph="searchPh" data-i18n-aria="searchAria" placeholder="Город или адрес в Германии" aria-label="Населённый пункт" role="combobox" aria-controls="suggest" aria-expanded="false" aria-autocomplete="list">
+    <button type="button" class="ico-btn" id="locateBtn" data-i18n-title="myLocation" title="Моё местоположение" aria-label="Моё местоположение">◎</button>
+    <button type="button" class="ico-btn" id="settingsBtn" data-i18n-title="settings" title="Настройки" aria-label="Настройки">⚙</button>
+    <ul class="suggest" id="suggest" role="listbox" data-i18n-aria="suggestAria" aria-label="Подсказки" hidden></ul>
   </form>
   <div class="filters">
-    <div class="seg" id="fuelSeg" role="radiogroup" aria-label="Вид топлива">
+    <div class="seg" id="fuelSeg" role="radiogroup" data-i18n-aria="fuelAria" aria-label="Вид топлива">
       <button data-fuel="e5" role="radio">E5</button>
       <button data-fuel="e10" role="radio">E10</button>
       <button data-fuel="diesel" role="radio">Diesel</button>
     </div>
-    <div class="seg" id="radiusSeg" role="radiogroup" aria-label="Радиус поиска">
-      <button data-rad="5" role="radio">5 км</button>
+    <div class="seg" id="radiusSeg" role="radiogroup" data-i18n-aria="radiusAria" aria-label="Радиус поиска">
+      <button data-rad="5" role="radio">5 <span data-i18n="km">км</span></button>
       <button data-rad="10" role="radio">10</button>
       <button data-rad="15" role="radio">15</button>
       <button data-rad="25" role="radio">25</button>
@@ -48,21 +48,21 @@
 </div>
 
 <!-- Нижняя выдвижная панель со списком -->
-<section class="sheet" id="sheet" data-state="peek" aria-label="Список заправок">
+<section class="sheet" id="sheet" data-state="peek" data-i18n-aria="listAria" aria-label="Список заправок">
   <div class="sheet-head" id="sheetHead">
     <div class="grip" aria-hidden="true"></div>
     <div class="best-card" id="best" hidden></div>
     <div class="sheet-row">
       <div class="sheet-title">
-        <div id="sheetTitle">Поиск заправок…</div>
+        <div id="sheetTitle" data-i18n="searching">Поиск заправок…</div>
         <div class="sub" id="sheetSub"></div>
       </div>
-      <button class="ico-btn" id="refreshBtn" title="Обновить" aria-label="Обновить">⟳</button>
+      <button class="ico-btn" id="refreshBtn" data-i18n-title="refresh" title="Обновить" aria-label="Обновить">⟳</button>
     </div>
     <div class="sheet-row">
-      <div class="seg small" id="sortSeg" role="radiogroup" aria-label="Сортировка">
-        <button data-sort="price" role="radio">По цене</button>
-        <button data-sort="dist" role="radio">По расстоянию</button>
+      <div class="seg small" id="sortSeg" role="radiogroup" data-i18n-aria="sortAria" aria-label="Сортировка">
+        <button data-sort="price" role="radio" data-i18n="byPrice">По цене</button>
+        <button data-sort="dist" role="radio" data-i18n="byDist">По расстоянию</button>
       </div>
       <div class="sub" id="stats"></div>
     </div>
@@ -76,40 +76,41 @@
 <!-- Настройки -->
 <dialog id="settings">
   <form method="dialog" id="settingsForm">
-    <h2>Настройки</h2>
+    <div class="dlg-head">
+      <h2 data-i18n="settings">Настройки</h2>
+      <div class="seg small" id="langSeg" role="radiogroup" data-i18n-aria="language" aria-label="Язык">
+        <button type="button" data-lang="ru" role="radio">Русский</button>
+        <button type="button" data-lang="de" role="radio">Deutsch</button>
+      </div>
+    </div>
     <label class="field">
-      <span>API-ключ Tankerkönig</span>
+      <span data-i18n="apiKeyLabel">API-ключ Tankerkönig</span>
       <input id="keyInput" autocomplete="off" spellcheck="false"
              placeholder="00000000-0000-0000-0000-000000000000">
     </label>
-    <p class="hint">
-      Бесплатный ключ: <a href="https://creativecommons.tankerkoenig.de/" target="_blank" rel="noopener">creativecommons.tankerkoenig.de</a>.
-      Необязательно: без него используется общий ключ. Свой ключ хранится только на этом устройстве.
-    </p>
-    <label class="check"><input type="checkbox" id="hideClosed"> Скрывать закрытые заправки</label>
+    <p class="hint" data-i18n-html="apiKeyHint"></p>
+    <label class="check"><input type="checkbox" id="hideClosed"> <span data-i18n="hideClosed">Скрывать закрытые заправки</span></label>
 
     <section class="morning">
-      <h3>☀️ Утреннее уведомление <span class="sub">≈ 6:30–6:45</span></h3>
-      <p class="hint">Каждое утро — 2 самые дешёвые заправки вокруг точки:</p>
+      <h3><span data-i18n="morningTitle">☀️ Утреннее уведомление</span> <span class="sub">≈ 6:30–6:45</span></h3>
+      <p class="hint" data-i18n="morningIntro"></p>
       <p class="m-point" id="mPoint">—</p>
-      <label class="check"><input type="checkbox" id="mWeekends" checked> Также по выходным</label>
-      <button type="button" class="btn primary wide" id="mEnable">🔔 Включить на этом телефоне</button>
+      <label class="check"><input type="checkbox" id="mWeekends" checked> <span data-i18n="weekends">Также по выходным</span></label>
+      <button type="button" class="btn primary wide" id="mEnable" data-i18n="mEnable"></button>
       <div id="mResult" hidden>
-        <p class="hint"><b>Последний шаг:</b> скопируйте код и вставьте его в GitHub как секрет <code>TK_MORNING</code>.</p>
+        <p class="hint" data-i18n-html="mLastStep"></p>
         <textarea id="mCode" readonly rows="3" spellcheck="false"></textarea>
         <div class="m-actions">
-          <button type="button" class="btn tonal" id="mCopy">📋 Скопировать код</button>
-          <button type="button" class="btn tonal" id="mTest">Пример уведомления</button>
+          <button type="button" class="btn tonal" id="mCopy" data-i18n="mCopy"></button>
+          <button type="button" class="btn tonal" id="mTest" data-i18n="mTest"></button>
         </div>
       </div>
       <p class="hint" id="mMsg"></p>
     </section>
-    <p class="hint">
-      Данные: MTS-K через Tankerkönig (CC BY 4.0). Карта и геокодинг: © участники OpenStreetMap.
-    </p>
+    <p class="hint" data-i18n="credits"></p>
     <div class="actions">
-      <button value="cancel" class="btn text">Отмена</button>
-      <button value="save" class="btn primary" id="saveSettings">Сохранить</button>
+      <button value="cancel" class="btn text" data-i18n="cancel">Отмена</button>
+      <button value="save" class="btn primary" id="saveSettings" data-i18n="save">Сохранить</button>
     </div>
   </form>
 </dialog>
@@ -118,6 +119,7 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="i18n.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

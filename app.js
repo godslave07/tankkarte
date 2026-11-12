@@ -67,19 +67,20 @@ function fmtPrice(p, withEuro = false) {
   return `${i},${d.slice(0, 2)}<sup>${d[2]}</sup>${withEuro ? " €" : ""}`;
 }
 const fmtPlain = p => (p == null ? "—" : p.toFixed(2).replace(".", ","));
-const fmtKm = km => `${km < 10 ? km.toFixed(1).replace(".", ",") : Math.round(km)} км`;
+const fmtKm = km => `${km < 10 ? km.toFixed(1).replace(".", ",") : Math.round(km)} ${t("km")}`;
+const LOCALE = () => (LANG === "de" ? "de-DE" : "ru-RU");
 
 function fmtTime(ts) {
   if (!ts) return "—";
   const d = new Date(ts), now = new Date();
-  const time = d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  const time = d.toLocaleTimeString(LOCALE(), { hour: "2-digit", minute: "2-digit" });
   if (d.toDateString() === now.toDateString()) return time;
-  return `${d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" })} ${time}`;
+  return `${d.toLocaleDateString(LOCALE(), { day: "2-digit", month: "2-digit" })} ${time}`;
 }
 function fmtAgo(ts) {
   const min = Math.round((Date.now() - ts) / 60000);
-  if (min < 1) return "только что";
-  if (min < 60) return `${min} мин назад`;
+  if (min < 1) return t("justNow");
+  if (min < 60) return t("minAgo", { n: min });
   return fmtTime(ts);
 }
 /** API отдаёт «2026-11-09T19:55:46+01» — дополняем смещение до ISO-формата. */
@@ -153,16 +154,16 @@ async function fetchStations(center, radius) {
   });
   let resp;
   try { resp = await fetch(url, { cache: "no-store" }); }
-  catch { throw new NetworkError("Нет соединения с сервером"); }
+  catch { throw new NetworkError(t("errNet")); }
   let body = null;
   try { body = await resp.json(); } catch { /* не JSON */ }
   if (!resp.ok) {
     const m = body?.message || "";
     if (/apikey/i.test(m) || resp.status === 401 || resp.status === 403) {
-      throw new Error("Неверный API-ключ Tankerkönig — проверьте настройки.");
+      throw Object.assign(new Error(t("errKey")), { isKey: true });
     }
-    if (resp.status === 429) throw new Error("Слишком много запросов к Tankerkönig, попробуйте позже.");
-    throw new Error(`Ошибка Tankerkönig (${resp.status}${m ? `: ${m}` : ""})`);
+    if (resp.status === 429) throw new Error(t("err429"));
+    throw new Error(t("errTk", { s: `${resp.status}${m ? `: ${m}` : ""}` }));
   }
   return (body?.stations || []).map(normalizeStation).filter(s => s.lat != null && s.lng != null);
 }
@@ -173,10 +174,10 @@ async function geocode(query) {
   url.search = new URLSearchParams({ q: query, format: "jsonv2", limit: 1, countrycodes: "de" });
   let resp;
   try { resp = await fetch(url, { headers: { "Accept-Language": "de,ru" } }); }
-  catch { throw new NetworkError("Геокодер недоступен — нет сети"); }
-  if (!resp.ok) throw new Error(`Геокодер: ошибка ${resp.status}`);
+  catch { throw new NetworkError(t("geoNet")); }
+  if (!resp.ok) throw new Error(t("geoErr", { s: resp.status }));
   const [place] = await resp.json();
-  if (!place) throw new Error(`«${query}» не найден в Германии`);
+  if (!place) throw new Error(t("notFound", { q: query }));
   return { lat: +place.lat, lng: +place.lon, label: place.name || place.display_name.split(",")[0] || query, kind: "city" };
 }
 
@@ -209,15 +210,14 @@ async function suggestPlaces(query, signal) {
 class GeoError extends Error {
   constructor(message, hint) { super(message); this.hint = hint; }
 }
-const WIN_LOCATION_HINT = "Проверьте, что в Windows включено «Расположение» и разрешён доступ для приложений: " +
-  "Параметры → Конфиденциальность и защита → Расположение.";
+const WIN_LOCATION_HINT = () => t("winHint");
 
 const toPos = p => ({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy });
 
 async function getPosition() {
-  if (!("geolocation" in navigator)) throw new GeoError("Браузер не поддерживает геолокацию.");
+  if (!("geolocation" in navigator)) throw new GeoError(t("geoUnsupported"));
   if (!window.isSecureContext) {
-    throw new GeoError("Геолокация работает только по HTTPS или на localhost.");
+    throw new GeoError(t("geoHttps"));
   }
   // Статус разрешения используем только для текста ошибки: запрос делаем всегда,
   // потому что «denied» бывает устаревшим (разрешили, но не перезагрузили)
@@ -232,15 +232,11 @@ async function getPosition() {
       err => {
         console.warn("Geolocation error", err.code, err.message, "permission:", perm?.state);
         if (err.code === err.PERMISSION_DENIED) {
-          reject(new GeoError("Нет доступа к местоположению.",
-            "1) В браузере: значок слева от адреса → «Геоданные» → «Разрешить». " +
-            "2) Если там уже «Разрешено», доступ закрыт в Windows: " +
-            "Параметры → Конфиденциальность и защита → Расположение — включите «Службы определения расположения» " +
-            "и «Разрешить классическим приложениям доступ к расположению». Затем нажмите «Повторить»."));
+          reject(new GeoError(t("geoDenied"), t("geoDeniedHint")));
         } else if (err.code === err.TIMEOUT) {
-          reject(new GeoError("Местоположение не определилось за 15 секунд.", "Попробуйте ещё раз. " + WIN_LOCATION_HINT));
+          reject(new GeoError(t("geoTimeout"), t("tryAgain") + WIN_LOCATION_HINT()));
         } else {
-          reject(new GeoError("Устройство не смогло определить местоположение.", WIN_LOCATION_HINT));
+          reject(new GeoError(t("geoUnavailable"), WIN_LOCATION_HINT()));
         }
       },
       { enableHighAccuracy: false, timeout: 15000, maximumAge: 120000 },
@@ -280,12 +276,10 @@ const map = L.map("map", { zoomControl: false, attributionControl: true, worldCo
   .setView([GERMANY.lat, GERMANY.lng], GERMANY.zoom);
 L.control.zoom({ position: "topright" }).addTo(map);
 // Светлая карта OpenStreetMap (без ключа; лёгкое «смягчение» цветов — в style.css).
-L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19,
-  attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · ' +
-    'Маршруты: <a href="https://project-osrm.org/">OSRM</a> · ' +
-    'Цены: <a href="https://creativecommons.tankerkoenig.de/">Tankerkönig</a> (CC BY 4.0)',
-}).addTo(map);
+const attribution = () => '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · ' +
+  `${t("attrRoutes")}: <a href="https://project-osrm.org/">OSRM</a> · ` +
+  `${t("attrPrices")}: <a href="https://creativecommons.tankerkoenig.de/">Tankerkönig</a> (CC BY 4.0)`;
+const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: attribution() }).addTo(map);
 map.attributionControl.setPrefix(false);
 
 const stationsLayer = L.layerGroup().addTo(map);
@@ -472,13 +466,13 @@ function routeText(s) {
   const o = routeOrigin();
   if (!o || !s) return "";
   const r = routeCache.get(routeKey(o, s));
-  const from = o.isMe ? "" : " от центра поиска";
+  const from = o.isMe ? "" : t("fromCenter");
   if (r && !r.straight) return `🚗 ${fmtKm(r.km)} · ${fmtDuration(r.min)}${from}`;
-  return `📏 ${fmtKm(haversineKm(o, s))} по прямой${from}`;
+  return `📏 ${t("straightLine", { d: fmtKm(haversineKm(o, s)) })}${from}`;
 }
 function fmtDuration(min) {
   const m = Math.max(1, Math.round(min));
-  return m < 60 ? `${m} мин` : `${Math.floor(m / 60)} ч ${m % 60} мин`;
+  return m < 60 ? t("durMin", { m }) : t("durH", { h: Math.floor(m / 60), m: m % 60 });
 }
 
 function renderBest() {
@@ -490,18 +484,18 @@ function renderBest() {
   el.innerHTML = `
     <div class="bp" style="--c:${scale.color(p) || "var(--ok)"}">${fmtPrice(p)}</div>
     <div class="bi">
-      <div class="bt">⭐ Дешевле всех · ${fuel}${bestTierSize > 1 ? ` · ближайшая из ${bestTierSize}` : ""}</div>
+      <div class="bt">${t("cheapest", { fuel })}${bestTierSize > 1 ? t("nearestOf", { n: bestTierSize }) : ""}</div>
       <div class="bn">${esc(s.brand || s.name)}</div>
-      <div class="bm" id="bestRoute">${routeText(s)} <span class="muted">· ${s.isOpen ? "открыто" : "закрыто"}</span></div>
+      <div class="bm" id="bestRoute">${routeText(s)} <span class="muted">· ${t(s.isOpen ? "open" : "closed")}</span></div>
     </div>
-    <a class="btn go" href="${gmapsUrl(s)}" target="_blank" rel="noopener" title="Маршрут в Google Maps">🧭 Поехать</a>`;
+    <a class="btn go" href="${gmapsUrl(s)}" target="_blank" rel="noopener" title="${t("gmapsTitle")}">${t("go")}</a>`;
   el.hidden = false;
 }
 
 function renderRouteInfo() {
   const best = byId(state.bestId);
   const br = $("bestRoute");
-  if (best && br) br.innerHTML = `${routeText(best)} <span class="muted">· ${best.isOpen ? "открыто" : "закрыто"}</span>`;
+  if (best && br) br.innerHTML = `${routeText(best)} <span class="muted">· ${t(best.isOpen ? "open" : "closed")}</span>`;
   const sel = byId(state.selectedId);
   const cr = $("cardRoute");
   if (sel && cr) cr.textContent = routeText(sel);
@@ -546,14 +540,14 @@ function renderMarkers(list) {
       s.isOpen ? "" : "closed", s.id === state.selectedId ? "sel" : ""].join(" ");
     const icon = L.divIcon({
       className: "pin-wrap",
-      html: `<div class="${cls}" style="--c:${scale.color(p) || "#9aa6b2"}">${isBest ? '<span class="tag">⭐ ДЕШЕВЛЕ ВСЕХ</span>' : ""}${fmtPrice(p)}</div>`,
+      html: `<div class="${cls}" style="--c:${scale.color(p) || "#9aa6b2"}">${isBest ? `<span class="tag">${t("pinBest")}</span>` : ""}${fmtPrice(p)}</div>`,
       iconSize: [0, 0],
       iconAnchor: [0, 0],
     });
     const m = L.marker([s.lat, s.lng], {
       icon,
       zIndexOffset: s.id === state.selectedId ? 100000 : isBest ? 90000 : i * 10,
-      title: `${s.brand || s.name}: ${p == null ? "нет цены" : fmtPlain(p) + " €"}`,
+      title: `${s.brand || s.name}: ${p == null ? t("noPrice") : fmtPlain(p) + " €"}`,
       keyboard: true,
     });
     m.on("click", () => selectStation(s.id, { pan: false }));
@@ -565,15 +559,15 @@ function renderMarkers(list) {
 function renderList(list) {
   const el = $("list");
   if (state.loading && !state.data) {
-    el.innerHTML = `<li class="empty">Загрузка…</li>`;
+    el.innerHTML = `<li class="empty">${t("loading")}</li>`;
     return;
   }
   if (!state.data) {
-    el.innerHTML = `<li class="empty">Разрешите геолокацию или введите город.</li>`;
+    el.innerHTML = `<li class="empty">${t("emptyStart")}</li>`;
     return;
   }
   if (!list.length) {
-    el.innerHTML = `<li class="empty">В радиусе ${state.radius} км заправок не найдено.</li>`;
+    el.innerHTML = `<li class="empty">${t("emptyNone", { r: state.radius })}</li>`;
     return;
   }
   el.innerHTML = sortStations(list).map(s => {
@@ -586,9 +580,9 @@ function renderList(list) {
       </div>
       <div class="meta">
         <div>${fmtKm(s.dist)}</div>
-        <div class="${s.isOpen ? "open" : "closed-txt"}">${s.isOpen ? "открыто" : "закрыто"}</div>
+        <div class="${s.isOpen ? "open" : "closed-txt"}">${t(s.isOpen ? "open" : "closed")}</div>
       </div>
-      <a class="go-mini" href="${gmapsUrl(s)}" target="_blank" rel="noopener" title="Маршрут в Google Maps" aria-label="Маршрут в Google Maps">🧭</a>
+      <a class="go-mini" href="${gmapsUrl(s)}" target="_blank" rel="noopener" title="${t("gmapsTitle")}" aria-label="${t("gmapsTitle")}">🧭</a>
     </li>`;
   }).join("");
 }
@@ -597,22 +591,18 @@ function renderSheetHeader(list) {
   const d = state.data;
   const fuelName = FUELS.find(f => f.id === state.fuel).short;
   $("sheetTitle").textContent = d
-    ? `${d.center.label} · ${list.length} ${plural(list.length, "заправка", "заправки", "заправок")}`
-    : (state.loading ? "Поиск заправок…" : "Где искать?");
+    ? `${centerLabel(d.center)} · ${tStations(list.length)}`
+    : t(state.loading ? "searching" : "whereSearch");
   $("sheetSub").textContent = d
-    ? `${state.radius} км · ${state.offline ? "нет сети, данные от " + fmtTime(d.fetchedAt) : "обновлено " + fmtAgo(d.fetchedAt)}`
+    ? `${state.radius} ${t("km")} · ${state.offline ? t("offlineFrom", { t: fmtTime(d.fetchedAt) }) : t("updated", { ago: fmtAgo(d.fetchedAt) })}`
     : "";
   $("stats").innerHTML = scale.count
     ? `${fuelName}: <span class="open">${fmtPlain(scale.min)}</span> – <span class="closed-txt">${fmtPlain(scale.max)}</span> €`
     : "";
 }
 
-function plural(n, one, few, many) {
-  const m10 = n % 10, m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return one;
-  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
-  return many;
-}
+/** Подпись точки поиска: «Рядом со мной» переводится, название города — как есть. */
+const centerLabel = c => (c?.kind === "location" ? t("nearMe") : c?.label ?? "");
 
 function renderControls() {
   const mark = (sel, attr, value) => document.querySelectorAll(`${sel} button`).forEach(b => {
@@ -623,6 +613,7 @@ function renderControls() {
   mark("#fuelSeg", "fuel", state.fuel);
   mark("#radiusSeg", "rad", state.radius);
   mark("#sortSeg", "sort", state.sort);
+  mark("#langSeg", "lang", LANG);
   $("refreshBtn").classList.toggle("spin", state.loading);
   $("refreshBtn").disabled = state.loading;
   $("locateBtn").classList.toggle("active", state.center?.kind === "location");
@@ -634,8 +625,8 @@ function renderCard(s) {
   const d = state.data;
   const fromMe = state.me && d.center.kind !== "location" ? haversineKm(state.me, s) : null;
   const distTxt = d.center.kind === "location"
-    ? `${fmtKm(s.dist)} от вас`
-    : `${fmtKm(s.dist)} от точки поиска${fromMe != null ? ` · ${fmtKm(fromMe)} от вас` : ""}`;
+    ? t("fromYou", { d: fmtKm(s.dist) })
+    : t("fromPoint", { d: fmtKm(s.dist) }) + (fromMe != null ? ` · ${t("fromYou", { d: fmtKm(fromMe) })}` : "");
   const lastTs = Math.max(0, ...Object.values(s.prices).map(p => p.ts || 0)) || null;
   const addr = [s.street, [s.postalCode, s.place].filter(Boolean).join(" ")].filter(Boolean).join(", ");
   const showBrand = s.brand && s.brand.toLowerCase() !== s.name.toLowerCase();
@@ -643,18 +634,18 @@ function renderCard(s) {
   card.innerHTML = `
     <div class="card-head">
       <div class="t">
-        ${s.id === state.bestId ? '<div class="best-badge">⭐ САМАЯ НИЗКАЯ ЦЕНА</div>' : ""}
+        ${s.id === state.bestId ? `<div class="best-badge">${t("badgeBest")}</div>` : ""}
         ${showBrand ? `<div class="brand">${esc(s.brand)}</div>` : ""}
         <h2>${esc(s.name || s.brand)}</h2>
         <div class="addr">${esc(addr)}</div>
       </div>
-      <button class="ico-btn" id="cardClose" aria-label="Закрыть">✕</button>
+      <button class="ico-btn" id="cardClose" aria-label="${t("close")}">✕</button>
     </div>
     <div class="chips">
       <span class="chip route" id="cardRoute">${routeText(s)}</span>
-      <span class="chip ${s.isOpen ? "open" : "closed-txt"}">${s.isOpen ? "● Открыто" : "● Закрыто"}</span>
+      <span class="chip ${s.isOpen ? "open" : "closed-txt"}">${t(s.isOpen ? "openChip" : "closedChip")}</span>
       <span class="chip">📍 ${distTxt}</span>
-      <span class="chip">🕒 цена изменена ${fmtTime(lastTs)}</span>
+      <span class="chip">🕒 ${t("priceChanged", { t: fmtTime(lastTs) })}</span>
     </div>
     <div class="fuels">
       ${FUELS.map(f => {
@@ -664,13 +655,13 @@ function renderCard(s) {
         return `<div class="fuel ${f.id === state.fuel ? "sel" : ""}">
           <div class="n">${f.name}</div>
           <div class="p">${fmtPrice(p?.price ?? null)}</div>
-          <div class="u">${p ? `${change}${fmtTime(p.ts)}` : "нет в продаже"}</div>
+          <div class="u">${p ? `${change}${fmtTime(p.ts)}` : t("notSold")}</div>
         </div>`;
       }).join("")}
     </div>
     <div class="row-btns">
-      <a class="btn primary" href="${gmapsUrl(s)}" target="_blank" rel="noopener">🧭 Поехать — Google Maps</a>
-      <button class="btn tonal" id="cardList">Список</button>
+      <a class="btn primary" href="${gmapsUrl(s)}" target="_blank" rel="noopener">${t("goGmaps")}</a>
+      <button class="btn tonal" id="cardList">${t("listBtn")}</button>
     </div>`;
   card.hidden = false;
   if (!isWide()) $("sheet").classList.add("hidden-by-card");
@@ -744,11 +735,11 @@ async function load(center, { force = false, silent = false } = {}) {
     if (e instanceof NetworkError || !navigator.onLine) {
       state.offline = true;
       showBanner(d
-        ? `Нет сети — показаны сохранённые цены от ${fmtTime(d.fetchedAt)} (${esc(d.center.label)}).`
-        : "Нет сети и нет сохранённых данных.", "error");
+        ? t("offlineSaved", { t: fmtTime(d.fetchedAt), label: esc(centerLabel(d.center)) })
+        : t("offlineNoData"), "error");
       if (d && !sameCenter(d.center, center)) { state.center = d.center; drawCenter(); }
     } else {
-      showBanner(esc(e.message) + (/ключ/.test(e.message) ? ' <button data-open-settings>Настройки</button>' : ""), "error");
+      showBanner(esc(e.message) + (e.isKey ? ` <button data-open-settings>${t("settings")}</button>` : ""), "error");
     }
   } finally {
     if (seq === reqSeq) state.loading = false;
@@ -763,13 +754,13 @@ async function searchMyLocation(opts = {}) {
     showDefaultBanner();   // убрать старую ошибку геолокации
     drawMe();
     startWatching();
-    await load({ lat: state.me.lat, lng: state.me.lng, label: "Рядом со мной", kind: "location" }, opts);
+    await load({ lat: state.me.lat, lng: state.me.lng, label: "", kind: "location" }, opts);
   } catch (e) {
     if (opts.silent) return;   // фоновое обновление — без лишнего шума
     showBanner(
       `<b>${esc(e.message)}</b>${e.hint ? `<div class="hint-line">${esc(e.hint)}</div>` : ""}` +
-      `<div class="hint-line">Или введите населённый пункт. ` +
-      `<button data-retry-geo>Повторить</button></div>`, "error");
+      `<div class="hint-line">${t("orTypePlace")}` +
+      `<button data-retry-geo>${t("retry")}</button></div>`, "error");
     $("banner").querySelector("[data-retry-geo]")?.addEventListener("click", () => searchMyLocation());
     if (!state.data) renderAll();
   } finally {
@@ -792,7 +783,7 @@ async function searchPlace(query) {
 function refresh({ manual = false } = {}) {
   if (!state.center || state.loading) return;
   if (manual && state.data && Date.now() - state.data.fetchedAt < MANUAL_MIN_MS && !state.offline) {
-    toast("Цены только что обновлены");
+    toast(t("justUpdated"));
     return;
   }
   if (state.center.kind === "location") searchMyLocation({ force: true, silent: !manual });
@@ -807,10 +798,10 @@ function autoRefreshTick() {
 }
 setInterval(autoRefreshTick, 30_000);
 document.addEventListener("visibilitychange", autoRefreshTick);
-window.addEventListener("online", () => { toast("Сеть снова доступна"); autoRefreshTick(); });
+window.addEventListener("online", () => { toast(t("backOnline")); autoRefreshTick(); });
 window.addEventListener("offline", () => {
   state.offline = true;
-  if (state.data) showBanner(`Нет сети — показаны сохранённые цены от ${fmtTime(state.data.fetchedAt)}.`, "error");
+  if (state.data) showBanner(t("offlineSavedShort", { t: fmtTime(state.data.fetchedAt) }), "error");
   renderSheetHeader(visibleStations());
 });
 
@@ -892,11 +883,12 @@ function morningMessage(stations, fuel, label) {
   const top = sorted.slice(0, 2);
   const short = FUELS.find(f => f.id === fuel)?.short || fuel;
   const line = (s, i) => `${i + 1}) ${s.brand || s.name} — ${priceOf(s, fuel).toFixed(3).replace(".", ",")} € · ` +
-    `${fmtKm(s.dist)}${s.isOpen ? "" : " (закрыто)"}`;
+    `${fmtKm(s.dist)}${s.isOpen ? "" : t("mClosed")}`;
   return {
     title: `⛽ ${short} — ${label}`,
-    body: top.length ? top.map(line).join("\n") : "Нет цен в радиусе поиска",
+    body: top.length ? top.map(line).join("\n") : t("mNoPrices"),
     route: top[0] ? gmapsUrl(top[0]) : null,
+    action: t("mRoute"),
   };
 }
 
@@ -907,33 +899,34 @@ function morningPoint() {
   const c = state.center;
   if (!c) return null;
   return { lat: +c.lat.toFixed(5), lng: +c.lng.toFixed(5),
-    label: c.kind === "location" ? "Рядом с домом" : c.label, fuel: state.fuel, radius: state.radius };
+    label: c.kind === "location" ? t("nearHome") : c.label, home: c.kind === "location",
+    fuel: state.fuel, radius: state.radius, lang: LANG };
 }
 
 function renderMorning() {
   const p = morningPoint();
   const short = p && (FUELS.find(f => f.id === p.fuel)?.short);
   $("mPoint").textContent = p
-    ? `📍 ${p.label === "Рядом с домом" ? "Текущее местоположение" : p.label} · ${short} · ${p.radius} км`
-    : "Сначала найдите заправки (геолокация или город).";
+    ? `📍 ${p.home ? t("curLoc") : p.label} · ${short} · ${p.radius} ${t("km")}`
+    : t("mNeedSearch");
   $("mEnable").disabled = !p;
   const saved = store.get("tk.morning", null);
   $("mResult").hidden = !saved;
   if (saved) $("mCode").value = saved.code;
-  $("mMsg").textContent = saved ? `Код создан ${fmtTime(saved.at)} для: ${saved.point}.` : "";
+  $("mMsg").textContent = saved ? t("mCreated", { t: fmtTime(saved.at), p: saved.point }) : "";
   if (!("PushManager" in window) || !("serviceWorker" in navigator)) {
     $("mEnable").disabled = true;
-    $("mMsg").textContent = "Этот браузер не поддерживает уведомления. На Android откройте TankKarte в Chrome / с рабочего стола.";
+    $("mMsg").textContent = t("mUnsupported");
   }
 }
 
 async function enableMorning() {
   const p = morningPoint();
   if (!p) return;
-  $("mMsg").textContent = "Запрашиваю разрешение…";
+  $("mMsg").textContent = t("mAsking");
   try {
     const perm = await Notification.requestPermission();
-    if (perm !== "granted") throw new Error("Уведомления запрещены — разрешите их для TankKarte в настройках телефона/браузера.");
+    if (perm !== "granted") throw new Error(t("mDenied"));
     const reg = await navigator.serviceWorker.ready;
     let sub = await reg.pushManager.getSubscription();
     const key = sub?.options?.applicationServerKey;
@@ -943,25 +936,43 @@ async function enableMorning() {
     sub ||= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64urlToBytes(VAPID_PUBLIC) });
     const cfg = { v: 1, sub: sub.toJSON(), ...p, weekends: $("mWeekends").checked };
     const short = FUELS.find(f => f.id === p.fuel)?.short;
-    store.set("tk.morning", { code: utf8ToB64(JSON.stringify(cfg)), at: Date.now(), point: `${p.label}, ${short}, ${p.radius} км` });
+    store.set("tk.morning", { code: utf8ToB64(JSON.stringify(cfg)), at: Date.now(), point: `${p.label}, ${short}, ${p.radius} ${t("km")}` });
     renderMorning();
     $("mCode").select();
   } catch (e) {
-    $("mMsg").textContent = `Не получилось: ${e.message}`;
+    $("mMsg").textContent = t("mFail", { m: e.message });
   }
 }
 
 $("mEnable").onclick = enableMorning;
 $("mCopy").onclick = async () => {
-  try { await navigator.clipboard.writeText($("mCode").value); toast("Код скопирован"); }
-  catch { $("mCode").select(); document.execCommand("copy"); toast("Код скопирован"); }
+  try { await navigator.clipboard.writeText($("mCode").value); toast(t("copied")); }
+  catch { $("mCode").select(); document.execCommand("copy"); toast(t("copied")); }
 };
 $("mTest").onclick = async () => {
-  if (Notification.permission !== "granted") { toast("Сначала включите уведомления"); return; }
+  if (Notification.permission !== "granted") { toast(t("enableFirst")); return; }
   const p = morningPoint();
   const msg = morningMessage(visibleStations(), state.fuel, p?.label || "");
   const reg = await navigator.serviceWorker.ready;
   reg.active?.postMessage({ type: "test-push", payload: msg });
+};
+
+// ============================ Язык ============================
+function setLang(lang) {
+  if (!LANGS.includes(lang) || lang === LANG) return;
+  LANG = lang;
+  store.set("tk.lang", lang);
+  applyStaticI18n();
+  map.attributionControl.removeAttribution(tiles.options.attribution);
+  tiles.options.attribution = attribution();
+  map.attributionControl.addAttribution(tiles.options.attribution);
+  if (!$("banner").hidden && $("banner").classList.contains("error")) hideBanner();   // старый текст ошибки — на прежнем языке
+  renderAll();
+  if ($("settings").open) renderMorning();
+}
+$("langSeg").onclick = e => {
+  const b = e.target.closest("button[data-lang]");
+  if (b) setLang(b.dataset.lang);
 };
 
 // ============================ События интерфейса ============================
@@ -1083,6 +1094,7 @@ document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("card")
   new ResizeObserver(() => {
     document.documentElement.style.setProperty("--peek", `${Math.ceil(head.offsetHeight)}px`);
   }).observe(head);
+  applyStaticI18n();
   renderControls();
   // Сначала показываем кэш (работает и без сети), потом обновляем по геолокации.
   const cached = store.get("tk.last", null);

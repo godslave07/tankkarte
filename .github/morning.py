@@ -73,13 +73,21 @@ def price_of(st, api_name):
     return None
 
 
-def fmt_km(km):
-    return f"{km:.1f}".replace(".", ",") + " км" if km < 10 else f"{round(km)} км"
+# Тексты уведомления (язык выбирается в приложении и приходит в коде TK_MORNING как "lang").
+TEXTS = {
+    "ru": {"km": "км", "closed": " (закрыто)", "none": "Нет цен в радиусе поиска", "route": "🧭 Маршрут к №1"},
+    "de": {"km": "km", "closed": " (geschlossen)", "none": "Keine Preise im Suchradius", "route": "🧭 Route zu Nr. 1"},
+}
+
+
+def fmt_km(km, unit="км"):
+    return f"{km:.1f}".replace(".", ",") + f" {unit}" if km < 10 else f"{round(km)} {unit}"
 
 
 def build_message(stations, cfg):
     """Та же логика, что morningMessage() в app.js."""
     api_name, short = FUELS.get(cfg.get("fuel", "e5"), FUELS["e5"])
+    tx = TEXTS.get(cfg.get("lang"), TEXTS["ru"])
     rows = [(s, price_of(s, api_name)) for s in stations]
     rows = [(s, p) for s, p in rows if p is not None]
     rows.sort(key=lambda sp: (not sp[0].get("isOpen"), sp[1], float(sp[0].get("dist") or 0)))
@@ -87,9 +95,9 @@ def build_message(stations, cfg):
     lines = []
     for i, (s, p) in enumerate(top):
         name = (s.get("brand") or "").strip() or (s.get("name") or "").strip()
-        closed = "" if s.get("isOpen") else " (закрыто)"
+        closed = "" if s.get("isOpen") else tx["closed"]
         price = f"{p:.3f}".replace(".", ",")
-        lines.append(f"{i + 1}) {name} — {price} € · {fmt_km(float(s.get('dist') or 0))}{closed}")
+        lines.append(f"{i + 1}) {name} — {price} € · {fmt_km(float(s.get('dist') or 0), tx['km'])}{closed}")
     route = None
     if top:
         c = top[0][0].get("coords") or {}
@@ -97,8 +105,9 @@ def build_message(stations, cfg):
                  f"{c.get('lat')},{c.get('lng')}&travelmode=driving")
     return {
         "title": f"⛽ {short} — {cfg.get('label', '')}",
-        "body": "\n".join(lines) if lines else "Нет цен в радиусе поиска",
+        "body": "\n".join(lines) if lines else tx["none"],
         "route": route,
+        "action": tx["route"],
     }
 
 
