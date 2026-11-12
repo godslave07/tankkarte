@@ -223,9 +223,15 @@ dialog { border: 0; border-radius: 24px; padding: 22px; width: min(440px, calc(1
   background: var(--surface); color: var(--text); box-shadow: 0 12px 40px rgba(19,38,59,.3); }
 dialog::backdrop { background: rgba(19,38,59,.35); }
 dialog h2 { margin: 0 0 14px; font-size: 21px; font-weight: 900; }
-.dlg-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
-.dlg-head h2 { margin: 0; }
-#langSeg { box-shadow: none; background: var(--surface-2); }
+/* переключатель языка на карте (справа, где раньше были +/−) */
+.lang-ctl { display: flex; flex-direction: column; background: var(--surface); border-radius: 14px; padding: 3px;
+  box-shadow: var(--shadow-sm); gap: 3px; }
+.lang-ctl button { width: 40px; height: 34px; border: 0; border-radius: 11px; background: none; cursor: pointer;
+  display: grid; place-items: center; font: 900 13px system-ui, sans-serif; color: var(--muted); padding: 0; }
+.lang-ctl button.on { background: var(--primary); color: var(--primary-ink); }
+.flag-de { display: block; width: 24px; height: 15px; border-radius: 3px; box-shadow: 0 0 0 1px rgba(0,0,0,.12);
+  background: linear-gradient(#000 0 33.3%, #dd0000 33.3% 66.6%, #ffce00 66.6%); }
+.lang-ctl button:not(.on) .flag-de { opacity: .75; }
 dialog { max-height: calc(100dvh - 24px); overflow-y: auto; }
 .morning { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 .morning h3 { margin: 0 0 4px; font-size: 16px; font-weight: 900; }

@@ -274,7 +274,22 @@ function startWatching() {
 // zoomSnap 0.1: дробный зум, чтобы круг радиуса заполнял ширину экрана при любом радиусе
 const map = L.map("map", { zoomControl: false, attributionControl: true, worldCopyJump: true, zoomSnap: 0.1, zoomDelta: 1 })
   .setView([GERMANY.lat, GERMANY.lng], GERMANY.zoom);
-L.control.zoom({ position: "topright" }).addTo(map);
+// Вместо кнопок +/− (масштаб задаёт выбор радиуса, пальцами тоже можно) — переключатель языка: RU / флаг Германии.
+L.Control.Lang = L.Control.extend({
+  options: { position: "topright" },
+  onAdd() {
+    const div = L.DomUtil.create("div", "lang-ctl");
+    div.id = "langSeg";
+    div.setAttribute("role", "radiogroup");
+    div.innerHTML =
+      '<button type="button" data-lang="ru" role="radio" title="Русский" aria-label="Русский">RU</button>' +
+      '<button type="button" data-lang="de" role="radio" title="Deutsch" aria-label="Deutsch"><span class="flag-de"></span></button>';
+    L.DomEvent.disableClickPropagation(div);
+    L.DomEvent.disableScrollPropagation(div);
+    return div;
+  },
+});
+new L.Control.Lang().addTo(map);
 // Светлая карта OpenStreetMap (без ключа; лёгкое «смягчение» цветов — в style.css).
 // Навигационная векторная карта OpenFreeMap (стиль «Liberty», без ключа). Без WebGL — растровая OSM.
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
