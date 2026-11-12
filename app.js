@@ -276,10 +276,36 @@ const map = L.map("map", { zoomControl: false, attributionControl: true, worldCo
   .setView([GERMANY.lat, GERMANY.lng], GERMANY.zoom);
 L.control.zoom({ position: "topright" }).addTo(map);
 // Светлая карта OpenStreetMap (без ключа; лёгкое «смягчение» цветов — в style.css).
-const attribution = () => '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · ' +
-  `${t("attrRoutes")}: <a href="https://project-osrm.org/">OSRM</a> · ` +
+// Навигационная векторная карта OpenFreeMap (стиль «Liberty», без ключа). Без WebGL — растровая OSM.
+const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
+const hasWebGL = (() => {
+  try { const c = document.createElement("canvas"); return !!(c.getContext("webgl2") || c.getContext("webgl")); }
+  catch { return false; }
+})();
+const useVector = hasWebGL && typeof L.maplibreGL === "function";
+// Подпись карты: источник подложки (OpenFreeMap / OSM) + наши источники маршрутов и цен (переводится).
+const MAP_ATTR = useVector
+  ? '<a href="https://openfreemap.org">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/">OpenMapTiles</a> ' +
+    '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+  : '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+const attribution = () => `${t("attrRoutes")}: <a href="https://project-osrm.org/">OSRM</a> · ` +
   `${t("attrPrices")}: <a href="https://creativecommons.tankerkoenig.de/">Tankerkönig</a> (CC BY 4.0)`;
-const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: attribution() }).addTo(map);
+const tiles = useVector
+  ? L.maplibreGL({ style: MAP_STYLE, attribution: MAP_ATTR, interactive: false }).addTo(map)
+  : L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: MAP_ATTR }).addTo(map);
+let appAttr = attribution();
+map.attributionControl.addAttribution(appAttr);
+if (useVector) {
+  // Значки магазинов/кафе/остановок скрываем: на карте остаются дороги, названия и наши цены.
+  const gl = tiles.getMaplibreMap();
+  gl.on("styledata", () => {
+    for (const layer of gl.getStyle()?.layers || []) {
+      if (layer.id.startsWith("poi_") && gl.getLayoutProperty(layer.id, "visibility") !== "none") {
+        gl.setLayoutProperty(layer.id, "visibility", "none");
+      }
+    }
+  });
+}
 map.attributionControl.setPrefix(false);
 
 const stationsLayer = L.layerGroup().addTo(map);
@@ -963,9 +989,9 @@ function setLang(lang) {
   LANG = lang;
   store.set("tk.lang", lang);
   applyStaticI18n();
-  map.attributionControl.removeAttribution(tiles.options.attribution);
-  tiles.options.attribution = attribution();
-  map.attributionControl.addAttribution(tiles.options.attribution);
+  map.attributionControl.removeAttribution(appAttr);
+  appAttr = attribution();
+  map.attributionControl.addAttribution(appAttr);
   if (!$("banner").hidden && $("banner").classList.contains("error")) hideBanner();   // старый текст ошибки — на прежнем языке
   renderAll();
   if ($("settings").open) renderMorning();

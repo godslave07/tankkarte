@@ -31,7 +31,8 @@ sup { font-size: .62em; }
 #map { position: fixed; inset: 0; background: #e8eef3; }
 .leaflet-container { font: inherit; background: #e8eef3; }
 /* Спокойнее стандартные тайлы OSM: меньше насыщенности, чуть светлее — маркеры и маршрут читаются лучше */
-.leaflet-tile-pane { filter: saturate(.55) brightness(1.04) contrast(.92); }
+/* запасная растровая карта OSM (если нет WebGL) — чуть приглушить цвета */
+.leaflet-tile { filter: saturate(.55) brightness(1.04) contrast(.92); }
 .leaflet-control-attribution { background: rgba(255,255,255,.8) !important; color: var(--muted) !important; font-size: 10px;
   border-radius: 8px 0 0 0; }
 .leaflet-control-attribution a { color: var(--primary-strong) !important; }

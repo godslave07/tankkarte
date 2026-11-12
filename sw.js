@@ -1,15 +1,18 @@
 /* Service worker: оболочка приложения и Leaflet — офлайн, тайлы карты — кэш просмотренных.
  * Цены (Tankerkönig), маршруты (OSRM) и геокодинг здесь не кэшируются: последние цены хранит app.js в localStorage. */
-const VERSION = "v9";
+const VERSION = "v10";
 const SHELL = `tk-shell-${VERSION}`;
 const TILES = `tk-tiles-${VERSION}`;
-const MAX_TILES = 600;
+const MAX_TILES = 1500;
 
 const SHELL_FILES = ["./", "index.html", "style.css", "i18n.js", "app.js", "manifest.webmanifest", "icon.svg",
   "icon-192.png", "icon-512.png", "icon-maskable-512.png", "apple-touch-icon.png"];
 const CDN_FILES = [
   "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
   "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+  "https://unpkg.com/maplibre-gl@5.24.1/dist/maplibre-gl.css",
+  "https://unpkg.com/maplibre-gl@5.24.1/dist/maplibre-gl.js",
+  "https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.4/leaflet-maplibre-gl.js",
 ];
 
 self.addEventListener("install", event => {
@@ -35,7 +38,15 @@ self.addEventListener("fetch", event => {
   const url = new URL(req.url);
 
   // Тайлы карты (CARTO / OSM): сначала кэш, затем сеть (с ограничением размера кэша).
-  if (url.hostname.endsWith("tile.openstreetmap.org") || url.hostname.endsWith("basemaps.cartocdn.com")) {
+  // Векторная карта OpenFreeMap: стиль и описание тайлов — из сети (там версия данных), при офлайне — из кэша;
+  // сами тайлы (адрес содержит версию), шрифты и значки — сначала из кэша.
+  if (url.hostname === "tiles.openfreemap.org") {
+    const meta = url.pathname.startsWith("/styles/") || /^\/planet\/?$/.test(url.pathname);
+    event.respondWith(meta ? networkFirst(req, TILES) : cacheFirst(req, TILES, true));
+    return;
+  }
+  // Запасная растровая карта OSM.
+  if (url.hostname.endsWith("tile.openstreetmap.org")) {
     event.respondWith(cacheFirst(req, TILES, true));
     return;
   }
@@ -67,8 +78,8 @@ async function cacheFirst(req, cacheName, trim) {
   }
 }
 
-async function networkFirst(req) {
-  const cache = await caches.open(SHELL);
+async function networkFirst(req, cacheName = SHELL) {
+  const cache = await caches.open(cacheName);
   try {
     // no-cache: всегда сверяться с сервером, чтобы обновления приложения приходили сразу
     const resp = await fetch(req, { cache: "no-cache" });
