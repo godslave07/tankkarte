@@ -1,6 +1,6 @@
 /* Service worker: оболочка приложения и Leaflet — офлайн, тайлы карты — кэш просмотренных.
  * Цены (Tankerkönig), маршруты (OSRM) и геокодинг здесь не кэшируются: последние цены хранит app.js в localStorage. */
-const VERSION = "v11";
+const VERSION = "v12";
 const SHELL = `tk-shell-${VERSION}`;
 const TILES = `tk-tiles-${VERSION}`;
 const MAX_TILES = 1500;
