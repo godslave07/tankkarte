@@ -36,6 +36,14 @@ sup { font-size: .62em; }
 .leaflet-control-attribution { background: rgba(255,255,255,.8) !important; color: var(--muted) !important; font-size: 10px;
   border-radius: 8px 0 0 0; }
 .leaflet-control-attribution a { color: var(--primary-strong) !important; }
+/* Свёрнутые источники карты: маленькая кнопка «i», по нажатию — полный текст. */
+.leaflet-control-attribution.compact { cursor: pointer; margin: 0 6px 6px 0 !important; border-radius: 14px; }
+.leaflet-control-attribution.compact:not(.open) { width: 24px; height: 24px; padding: 0 !important; font-size: 0;
+  border-radius: 50%; box-shadow: var(--shadow-sm); background: var(--surface) !important; }
+.leaflet-control-attribution.compact:not(.open)::before { content: "i"; display: grid; place-items: center; height: 100%;
+  font: italic 800 14px Georgia, serif; color: var(--muted); }
+.leaflet-control-attribution.compact.open { max-width: calc(100vw - 24px); padding: 6px 10px !important; font-size: 11px;
+  box-shadow: var(--shadow-sm); }
 .leaflet-bottom { bottom: calc(var(--peek) + var(--safe-bottom)); }
 .leaflet-top.leaflet-right { top: var(--top-h, 112px); }
 .leaflet-bar { border: 0 !important; box-shadow: var(--shadow-sm) !important; border-radius: 14px !important; overflow: hidden; }

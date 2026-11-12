@@ -31,7 +31,7 @@ const I18N = {
     mLastStep: "<b>Последний шаг:</b> скопируйте код и вставьте его в GitHub как секрет <code>TK_MORNING</code>.",
     mCopy: "📋 Скопировать код",
     mTest: "Пример уведомления",
-    credits: "Данные: MTS-K через Tankerkönig (CC BY 4.0). Карта и геокодинг: © участники OpenStreetMap.",
+    credits: "Цены: MTS-K через Tankerkönig (CC BY 4.0). Карта: OpenFreeMap © OpenMapTiles, данные © участники OpenStreetMap. Маршруты: OSRM. Поиск мест: Nominatim, Photon.",
     cancel: "Отмена",
     save: "Сохранить",
 
@@ -138,7 +138,7 @@ const I18N = {
     mLastStep: "<b>Letzter Schritt:</b> Code kopieren und in GitHub als Secret <code>TK_MORNING</code> einfügen.",
     mCopy: "📋 Code kopieren",
     mTest: "Beispiel anzeigen",
-    credits: "Daten: MTS-K über Tankerkönig (CC BY 4.0). Karte und Ortssuche: © OpenStreetMap-Mitwirkende.",
+    credits: "Preise: MTS-K über Tankerkönig (CC BY 4.0). Karte: OpenFreeMap © OpenMapTiles, Daten © OpenStreetMap-Mitwirkende. Routen: OSRM. Ortssuche: Nominatim, Photon.",
     cancel: "Abbrechen",
     save: "Speichern",
 

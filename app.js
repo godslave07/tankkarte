@@ -307,6 +307,19 @@ if (useVector) {
   });
 }
 map.attributionControl.setPrefix(false);
+// Источники карты свёрнуты в кнопку «i»: нажатие раскрывает текст, повторное нажатие или касание карты — сворачивает.
+(() => {
+  const el = map.attributionControl.getContainer();
+  el.classList.add("compact");
+  el.title = "Info";
+  L.DomEvent.disableClickPropagation(el);
+  el.addEventListener("click", e => {
+    if (e.target.closest("a") && el.classList.contains("open")) return;   // ссылки работают в раскрытом виде
+    e.preventDefault();
+    el.classList.toggle("open");
+  });
+  map.on("click movestart", () => el.classList.remove("open"));
+})();
 
 const stationsLayer = L.layerGroup().addTo(map);
 const markers = new Map();
