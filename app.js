@@ -275,7 +275,8 @@ function startWatching() {
 }
 
 // ============================ Карта ============================
-const map = L.map("map", { zoomControl: false, attributionControl: true, worldCopyJump: true })
+// zoomSnap 0.1: дробный зум, чтобы круг радиуса заполнял ширину экрана при любом радиусе
+const map = L.map("map", { zoomControl: false, attributionControl: true, worldCopyJump: true, zoomSnap: 0.1, zoomDelta: 1 })
   .setView([GERMANY.lat, GERMANY.lng], GERMANY.zoom);
 L.control.zoom({ position: "topright" }).addTo(map);
 // Светлая карта OpenStreetMap (без ключа; лёгкое «смягчение» цветов — в style.css).
