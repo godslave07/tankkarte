@@ -87,6 +87,23 @@
       Необязательно: без него используется общий ключ. Свой ключ хранится только на этом устройстве.
     </p>
     <label class="check"><input type="checkbox" id="hideClosed"> Скрывать закрытые заправки</label>
+
+    <section class="morning">
+      <h3>☀️ Утреннее уведомление <span class="sub">≈ 6:30–6:45</span></h3>
+      <p class="hint">Каждое утро — 2 самые дешёвые заправки вокруг точки:</p>
+      <p class="m-point" id="mPoint">—</p>
+      <label class="check"><input type="checkbox" id="mWeekends" checked> Также по выходным</label>
+      <button type="button" class="btn primary wide" id="mEnable">🔔 Включить на этом телефоне</button>
+      <div id="mResult" hidden>
+        <p class="hint"><b>Последний шаг:</b> скопируйте код и вставьте его в GitHub как секрет <code>TK_MORNING</code>.</p>
+        <textarea id="mCode" readonly rows="3" spellcheck="false"></textarea>
+        <div class="m-actions">
+          <button type="button" class="btn tonal" id="mCopy">📋 Скопировать код</button>
+          <button type="button" class="btn tonal" id="mTest">Пример уведомления</button>
+        </div>
+      </div>
+      <p class="hint" id="mMsg"></p>
+    </section>
     <p class="hint">
       Данные: MTS-K через Tankerkönig (CC BY 4.0). Карта и геокодинг: © участники OpenStreetMap.
     </p>

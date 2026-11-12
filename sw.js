@@ -1,6 +1,6 @@
 /* Service worker: оболочка приложения и Leaflet — офлайн, тайлы карты — кэш просмотренных.
  * Цены (Tankerkönig), маршруты (OSRM) и геокодинг здесь не кэшируются: последние цены хранит app.js в localStorage. */
-const VERSION = "v6";
+const VERSION = "v7";
 const SHELL = `tk-shell-${VERSION}`;
 const TILES = `tk-tiles-${VERSION}`;
 const MAX_TILES = 600;
@@ -80,6 +80,42 @@ async function networkFirst(req) {
       || new Response("offline", { status: 503 });
   }
 }
+
+// ---------- Утреннее уведомление (push из GitHub Actions) ----------
+function showPush(data) {
+  const actions = data.route ? [{ action: "route", title: "🧭 Маршрут к №1" }] : [];
+  return self.registration.showNotification(data.title || "TankKarte", {
+    body: data.body || "",
+    icon: "icon-192.png",
+    badge: "icon-192.png",
+    tag: "tk-morning",
+    renotify: true,
+    actions,
+    data: { route: data.route || null },
+  });
+}
+
+self.addEventListener("push", event => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch { data = { body: event.data?.text() || "" }; }
+  event.waitUntil(showPush(data));
+});
+
+self.addEventListener("message", event => {
+  if (event.data?.type === "test-push") event.waitUntil(showPush(event.data.payload || {}));
+});
+
+self.addEventListener("notificationclick", event => {
+  event.notification.close();
+  const route = event.notification.data?.route;
+  event.waitUntil((async () => {
+    if (event.action === "route" && route) return self.clients.openWindow(route);
+    const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    const app = wins.find(w => new URL(w.url).pathname.startsWith(new URL(self.registration.scope).pathname));
+    if (app) { await app.focus(); return; }
+    return self.clients.openWindow(self.registration.scope);
+  })());
+});
 
 let trimming = false;
 async function trimCache(cache) {

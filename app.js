@@ -861,6 +861,7 @@ function setSheet(s) { sheet.dataset.state = s; }
 function openSettings() {
   $("keyInput").value = settings.apiKey;
   $("hideClosed").checked = settings.hideClosed;
+  renderMorning();
   $("settings").showModal();
 }
 $("settings").addEventListener("close", () => {
@@ -875,6 +876,92 @@ $("settings").addEventListener("close", () => {
   if (keyChanged && state.center) load(state.center, { force: true, silent: true });
   else renderAll();
 });
+
+// ============================ Утреннее уведомление ============================
+/* Телефон подписывается на push (Web Push), а GitHub Actions каждое утро (~6:30 по Берлину)
+ * запрашивает цены и присылает уведомление. Подписка + точка поиска передаются в GitHub
+ * одним кодом (секрет TK_MORNING). Скрипт: .github/morning.py, расписание: .github/workflows/morning.yml */
+const VAPID_PUBLIC = "BMXe11Zm--Gd0mpMJgePpfEgmvzUmKWGezB5rLUd2zl2pZbKddh4l6Gzprx7PZgogA5AmqHK5neCCfJJ3jUzlHA";
+
+/** Та же логика, что в .github/morning.py: 2 самые дешёвые (сначала открытые, при равной цене — ближе). */
+function morningMessage(stations, fuel, label) {
+  const withPrice = stations.filter(s => priceOf(s, fuel) != null);
+  const sorted = [...withPrice].sort((a, b) =>
+    (b.isOpen - a.isOpen) || (priceOf(a, fuel) - priceOf(b, fuel)) || (a.dist - b.dist));
+  const top = sorted.slice(0, 2);
+  const short = FUELS.find(f => f.id === fuel)?.short || fuel;
+  const line = (s, i) => `${i + 1}) ${s.brand || s.name} — ${priceOf(s, fuel).toFixed(3).replace(".", ",")} € · ` +
+    `${fmtKm(s.dist)}${s.isOpen ? "" : " (закрыто)"}`;
+  return {
+    title: `⛽ ${short} — ${label}`,
+    body: top.length ? top.map(line).join("\n") : "Нет цен в радиусе поиска",
+    route: top[0] ? gmapsUrl(top[0]) : null,
+  };
+}
+
+const b64urlToBytes = s => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
+const utf8ToB64 = s => btoa(String.fromCharCode(...new TextEncoder().encode(s)));
+
+function morningPoint() {
+  const c = state.center;
+  if (!c) return null;
+  return { lat: +c.lat.toFixed(5), lng: +c.lng.toFixed(5),
+    label: c.kind === "location" ? "Рядом с домом" : c.label, fuel: state.fuel, radius: state.radius };
+}
+
+function renderMorning() {
+  const p = morningPoint();
+  const short = p && (FUELS.find(f => f.id === p.fuel)?.short);
+  $("mPoint").textContent = p
+    ? `📍 ${p.label === "Рядом с домом" ? "Текущее местоположение" : p.label} · ${short} · ${p.radius} км`
+    : "Сначала найдите заправки (геолокация или город).";
+  $("mEnable").disabled = !p;
+  const saved = store.get("tk.morning", null);
+  $("mResult").hidden = !saved;
+  if (saved) $("mCode").value = saved.code;
+  $("mMsg").textContent = saved ? `Код создан ${fmtTime(saved.at)} для: ${saved.point}.` : "";
+  if (!("PushManager" in window) || !("serviceWorker" in navigator)) {
+    $("mEnable").disabled = true;
+    $("mMsg").textContent = "Этот браузер не поддерживает уведомления. На Android откройте TankKarte в Chrome / с рабочего стола.";
+  }
+}
+
+async function enableMorning() {
+  const p = morningPoint();
+  if (!p) return;
+  $("mMsg").textContent = "Запрашиваю разрешение…";
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") throw new Error("Уведомления запрещены — разрешите их для TankKarte в настройках телефона/браузера.");
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    const key = sub?.options?.applicationServerKey;
+    if (sub && key && btoa(String.fromCharCode(...new Uint8Array(key))) !== btoa(String.fromCharCode(...b64urlToBytes(VAPID_PUBLIC)))) {
+      await sub.unsubscribe(); sub = null;
+    }
+    sub ||= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64urlToBytes(VAPID_PUBLIC) });
+    const cfg = { v: 1, sub: sub.toJSON(), ...p, weekends: $("mWeekends").checked };
+    const short = FUELS.find(f => f.id === p.fuel)?.short;
+    store.set("tk.morning", { code: utf8ToB64(JSON.stringify(cfg)), at: Date.now(), point: `${p.label}, ${short}, ${p.radius} км` });
+    renderMorning();
+    $("mCode").select();
+  } catch (e) {
+    $("mMsg").textContent = `Не получилось: ${e.message}`;
+  }
+}
+
+$("mEnable").onclick = enableMorning;
+$("mCopy").onclick = async () => {
+  try { await navigator.clipboard.writeText($("mCode").value); toast("Код скопирован"); }
+  catch { $("mCode").select(); document.execCommand("copy"); toast("Код скопирован"); }
+};
+$("mTest").onclick = async () => {
+  if (Notification.permission !== "granted") { toast("Сначала включите уведомления"); return; }
+  const p = morningPoint();
+  const msg = morningMessage(visibleStations(), state.fuel, p?.label || "");
+  const reg = await navigator.serviceWorker.ready;
+  reg.active?.postMessage({ type: "test-push", payload: msg });
+};
 
 // ============================ События интерфейса ============================
 // --- Подсказки при вводе города ---

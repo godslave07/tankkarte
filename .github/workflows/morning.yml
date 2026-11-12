@@ -1,0 +1,29 @@
+name: Утреннее уведомление
+
+on:
+  schedule:
+    # 6:30 по Берлину: летом это 4:30 UTC, зимой 5:30 UTC (лишний запуск скрипт пропускает).
+    # GitHub может запускать с задержкой ~5–15 минут.
+    - cron: "30 4 * * *"
+    - cron: "30 5 * * *"
+  workflow_dispatch: {}   # кнопка «Run workflow» — отправить прямо сейчас (для проверки)
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet "pywebpush>=2,<3"
+      - run: python .github/morning.py
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
+          TK_MORNING: ${{ secrets.TK_MORNING }}
+          VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
+          TK_API_KEY: ${{ secrets.TK_API_KEY }}
