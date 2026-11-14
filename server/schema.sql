@@ -18,6 +18,13 @@ CREATE TABLE IF NOT EXISTS subs (
 );
 CREATE INDEX IF NOT EXISTS subs_time ON subs (time);
 
+-- Счётчики запросов для ограничения частоты: ключ = «вид|хэш адреса|минута». Сами IP не хранятся.
+CREATE TABLE IF NOT EXISTS rate (
+  k TEXT PRIMARY KEY,
+  m INTEGER NOT NULL,           -- номер минуты (для очистки)
+  n INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS price_cache (
   key  TEXT PRIMARY KEY,        -- «lat,lng,radius» (координаты округлены до ~100 м)
   at   INTEGER NOT NULL,

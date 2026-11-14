@@ -26,6 +26,8 @@ export default {
         console.error("deliver", e);
       }
     }
+    // Старые счётчики ограничения частоты.
+    await env.DB.prepare("DELETE FROM rate WHERE m < ?").bind(Math.floor(Date.now() / 60000) - 5).run();
     // Раз в сутки — чистка старого кэша цен.
     if (slot === "03:00") {
       await env.DB.prepare("DELETE FROM price_cache WHERE at < ?").bind(Date.now() - 24 * 3600_000).run();

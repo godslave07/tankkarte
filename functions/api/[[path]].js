@@ -1,12 +1,23 @@
 /* API сайта TankKarte (Cloudflare Pages Functions): /api/stations, /api/subscribe, /api/unsubscribe, /api/test. */
-import { json, getStations, validSubscription, deliver, RADII, FUELS, MAX_SUBS } from "../../server/lib.js";
+import { json, getStations, trimStations, validSubscription, deliver, rateLimited, RADII, FUELS, MAX_SUBS } from "../../server/lib.js";
 
-// Старый адрес на GitHub Pages и локальная разработка тоже могут обращаться к API.
-const ALLOWED_ORIGINS = ["https://godslave07.github.io", "http://localhost:8766", "http://127.0.0.1:8766"];
+// API только для самого приложения: свой сайт (и его предпросмотры *.tankkarte.pages.dev),
+// старый адрес на GitHub Pages и локальная разработка.
+const ALLOWED_ORIGINS = ["https://tankkarte.pages.dev", "https://godslave07.github.io", "http://localhost:8766", "http://127.0.0.1:8766"];
+const allowedOrigin = o => !!o && (ALLOWED_ORIGINS.includes(o) || /^https:\/\/[a-z0-9-]+\.tankkarte\.pages\.dev$/.test(o));
+
+/** Запрос пришёл из нашего приложения в браузере? (Простую выкачку данных скриптами это отсекает.) */
+function fromOurApp(request) {
+  if (request.headers.get("sec-fetch-site") === "same-origin") return true;
+  if (allowedOrigin(request.headers.get("origin"))) return true;
+  try { return allowedOrigin(new URL(request.headers.get("referer")).origin); } catch { return false; }
+}
+// Лимиты на один адрес в минуту.
+const LIMITS = { stations: 30, subscribe: 10, test: 4 };
 
 function cors(request) {
   const origin = request.headers.get("origin");
-  if (!origin || !ALLOWED_ORIGINS.includes(origin)) return {};
+  if (!allowedOrigin(origin)) return {};
   return { "access-control-allow-origin": origin, "access-control-allow-methods": "GET, POST",
     "access-control-allow-headers": "content-type", "access-control-max-age": "86400", vary: "origin" };
 }
@@ -25,7 +36,7 @@ async function stations(url, env) {
     return json({ ok: false, message: "bad parameters" }, 400);
   }
   try {
-    const body = await getStations(env, lat, lng, rad);
+    const body = JSON.stringify(trimStations(await getStations(env, lat, lng, rad)));
     return new Response(body, { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
   } catch (e) {
     return json({ ok: false, message: e.message }, e.status === 429 ? 429 : 502);
@@ -80,11 +91,17 @@ export async function onRequest({ request, env }) {
   let resp;
   try {
     const route = `${request.method} ${url.pathname.replace(/\/$/, "")}`;
-    if (route === "GET /api/stations") resp = await stations(url, env);
+    const bucket = { "GET /api/stations": "stations", "POST /api/subscribe": "subscribe",
+      "POST /api/unsubscribe": "subscribe", "POST /api/test": "test" }[route];
+    if (!bucket) resp = json({ ok: false, message: "not found" }, 404);
+    else if (!fromOurApp(request)) resp = json({ ok: false, message: "forbidden" }, 403);
+    else if (await rateLimited(env, request, bucket, LIMITS[bucket])) {
+      resp = json({ ok: false, message: "too many requests" }, 429, { "retry-after": "60" });
+    }
+    else if (bucket === "stations") resp = await stations(url, env);
     else if (route === "POST /api/subscribe") resp = await subscribe(request, env);
     else if (route === "POST /api/unsubscribe") resp = await unsubscribe(request, env);
-    else if (route === "POST /api/test") resp = await test(request, env);
-    else resp = json({ ok: false, message: "not found" }, 404);
+    else resp = await test(request, env);
   } catch (e) {
     console.error(e);
     resp = json({ ok: false, message: "server error" }, 500);

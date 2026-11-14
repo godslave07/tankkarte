@@ -52,6 +52,34 @@ export function berlinNow(now = new Date()) {
 // ---------------------------------------------------------------- цены
 const memCache = new Map();   // в пределах одного экземпляра воркера
 
+/**
+ * Только то, что нужно самому приложению: условия Tankerkönig запрещают передавать наборы данных дальше,
+ * поэтому полный ответ API наружу не отдаём.
+ */
+export function trimStations(body) {
+  const data = typeof body === "string" ? JSON.parse(body) : body;
+  const round = (x, d) => (typeof x === "number" ? Math.round(x * 10 ** d) / 10 ** d : null);
+  return {
+    stations: (data.stations || []).map(s => ({
+      id: s.id,
+      name: s.name,
+      brand: s.brand,
+      street: s.street,
+      postalCode: s.postalCode,
+      place: s.place,
+      coords: { lat: round(s.coords?.lat, 5), lng: round(s.coords?.lng, 5) },
+      dist: s.dist,
+      isOpen: !!s.isOpen,
+      fuels: (s.fuels || []).filter(f => FUEL_API_NAMES.has(String(f.name).toLowerCase())).map(f => ({
+        name: f.name,
+        price: f.price,
+        lastChange: f.lastChange ? { amount: f.lastChange.amount, timestamp: f.lastChange.timestamp } : undefined,
+      })),
+    })),
+  };
+}
+const FUEL_API_NAMES = new Set(["super e5", "super e10", "diesel"]);
+
 /** Заправки вокруг точки. Координаты округляются до ~100 м, ответ кэшируется на 5 минут (память + D1). */
 export async function getStations(env, lat, lng, rad) {
   lat = Math.round(lat * 1000) / 1000;
@@ -67,15 +95,33 @@ export async function getStations(env, lat, lng, rad) {
   }
   const url = `${TK_URL}?${new URLSearchParams({ apikey: env.TK_API_KEY, lat, lng, rad })}`;
   const resp = await fetch(url, { headers: { "user-agent": "TankKarte" } });
-  const body = await resp.text();
+  const raw = await resp.text();
   if (!resp.ok) {
     if (row) return row.body;   // Tankerkönig недоступен — отдаём последние сохранённые цены
-    throw Object.assign(new Error(`Tankerkönig ${resp.status}`), { status: resp.status, body });
+    throw Object.assign(new Error(`Tankerkönig ${resp.status}`), { status: resp.status });
   }
+  const body = JSON.stringify(trimStations(raw));
   memCache.set(key, { at: now, body });
   if (memCache.size > 500) memCache.delete(memCache.keys().next().value);
   await env.DB.prepare("INSERT OR REPLACE INTO price_cache (key, at, body) VALUES (?, ?, ?)").bind(key, now, body).run();
   return body;
+}
+
+// ---------------------------------------------------------------- ограничение частоты запросов
+/**
+ * Не больше `limit` запросов в минуту с одного адреса. IP не хранится: только его хэш с солью,
+ * которая меняется каждый день (по нему нельзя восстановить адрес). Возвращает true, если лимит превышен.
+ */
+export async function rateLimited(env, request, bucket, limit) {
+  const ip = request.headers.get("cf-connecting-ip") || "unknown";
+  const minute = Math.floor(Date.now() / 60000);
+  const day = Math.floor(minute / 1440);
+  const digest = await crypto.subtle.digest("SHA-256", enc.encode(`${day}|${env.VAPID_PRIVATE}|${ip}`));
+  const key = `${bucket}|${b64url(digest).slice(0, 16)}|${minute}`;
+  const row = await env.DB.prepare(
+    "INSERT INTO rate (k, m, n) VALUES (?, ?, 1) ON CONFLICT(k) DO UPDATE SET n = n + 1 RETURNING n",
+  ).bind(key, minute).first();
+  return (row?.n || 0) > limit;
 }
 
 // ---------------------------------------------------------------- текст уведомления
