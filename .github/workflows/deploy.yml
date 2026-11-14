@@ -1,0 +1,85 @@
+name: Развёртывание на Cloudflare
+
+# Сайт (Cloudflare Pages + /api), база D1 и воркер утренних уведомлений.
+# Нужные секреты репозитория: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, TK_API_KEY, VAPID_PRIVATE.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency: deploy
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TK_API_KEY: ${{ secrets.TK_API_KEY }}
+      VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
+      VAPID_PUBLIC: BMXe11Zm--Gd0mpMJgePpfEgmvzUmKWGezB5rLUd2zl2pZbKddh4l6Gzprx7PZgogA5AmqHK5neCCfJJ3jUzlHA
+      PROJECT: tankkarte
+      DB_NAME: tankkarte
+    steps:
+      - name: Проверка настроек
+        id: check
+        run: |
+          missing=""
+          for v in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID TK_API_KEY VAPID_PRIVATE; do
+            [ -z "${!v}" ] && missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "::warning::Не заданы секреты:$missing — развёртывание пропущено."
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.skip != '1'
+
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.skip != '1'
+        with:
+          node-version: "20"
+
+      - name: Wrangler
+        if: steps.check.outputs.skip != '1'
+        run: npm install --global wrangler@4
+
+      - name: База D1 (создать при первом запуске, обновить схему)
+        if: steps.check.outputs.skip != '1'
+        run: |
+          id=$(wrangler d1 list --json | jq -r --arg n "$DB_NAME" '.[] | select(.name == $n) | .uuid')
+          if [ -z "$id" ]; then
+            wrangler d1 create "$DB_NAME"
+            id=$(wrangler d1 list --json | jq -r --arg n "$DB_NAME" '.[] | select(.name == $n) | .uuid')
+          fi
+          [ -n "$id" ] || { echo "::error::Не удалось получить ID базы D1"; exit 1; }
+          sed -i "s/__D1_ID__/$id/" wrangler.toml server/wrangler.toml
+          wrangler d1 execute "$DB_NAME" --remote --file server/schema.sql
+
+      - name: Секреты сервера
+        if: steps.check.outputs.skip != '1'
+        run: |
+          jq -n --arg a "$TK_API_KEY" --arg b "$VAPID_PRIVATE" --arg c "$VAPID_PUBLIC" \
+            '{TK_API_KEY: $a, VAPID_PRIVATE: $b, VAPID_PUBLIC: $c}' > "$RUNNER_TEMP/secrets.json"
+          wrangler pages project create "$PROJECT" --production-branch main 2>/dev/null || true
+          wrangler pages secret bulk "$RUNNER_TEMP/secrets.json" --project-name "$PROJECT"
+
+      - name: Сайт (Cloudflare Pages)
+        if: steps.check.outputs.skip != '1'
+        run: wrangler pages deploy --project-name "$PROJECT" --branch main --commit-dirty=true
+
+      - name: Воркер утренних уведомлений
+        if: steps.check.outputs.skip != '1'
+        working-directory: server
+        run: |
+          wrangler deploy
+          wrangler secret bulk "$RUNNER_TEMP/secrets.json"
+
+      - name: Убрать временный файл
+        if: always()
+        run: rm -f "$RUNNER_TEMP/secrets.json"

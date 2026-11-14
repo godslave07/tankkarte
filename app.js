@@ -4,6 +4,16 @@
 // ============================ Конфигурация ============================
 const DEMO_KEY = "00000000-0000-0000-0000-000000000002";
 const API_URL = "https://creativecommons.tankerkoenig.de/api/v4/stations/search";
+/**
+ * Свой сервер (Cloudflare Pages + /api): цены через него (ключ Tankerkönig скрыт, ответы кэшируются)
+ * и подписки на утренние уведомления. На самом сайте сервера API на том же адресе; со старого адреса
+ * (GitHub Pages) и при локальной разработке — по REMOTE_API. Пока REMOTE_API пуст и мы не на сервере,
+ * цены берутся напрямую у Tankerkönig, а уведомления недоступны.
+ */
+const REMOTE_API = "";
+const ON_SERVER = !/(^|\.)github\.io$|^localhost$|^127\./.test(location.hostname);
+const API_BASE = ON_SERVER ? "" : REMOTE_API;
+const HAS_SERVER = ON_SERVER || !!REMOTE_API;
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
 const PHOTON_URL = "https://photon.komoot.io/api/";   // подсказки при вводе (Nominatim автодополнение запрещает)
 const DE_BBOX = "5.86,47.27,15.05,55.06";
@@ -145,9 +155,10 @@ function normalizeStation(s) {
 }
 
 async function fetchStations(center, radius) {
-  const url = new URL(API_URL);
+  const viaServer = HAS_SERVER && !settings.apiKey;   // свой ключ в настройках — запрос напрямую
+  const url = new URL(viaServer ? `${API_BASE}/api/stations` : API_URL, location.href);
   url.search = new URLSearchParams({
-    apikey: settings.apiKey || DEMO_KEY,
+    ...(viaServer ? {} : { apikey: settings.apiKey || DEMO_KEY }),
     lat: center.lat.toFixed(6),
     lng: center.lng.toFixed(6),
     rad: radius,
@@ -906,6 +917,7 @@ function setSheet(s) { sheet.dataset.state = s; }
 // ============================ Настройки ============================
 function openSettings() {
   $("keyInput").value = settings.apiKey;
+  $("keyBlock").hidden = HAS_SERVER && !settings.apiKey;
   $("hideClosed").checked = settings.hideClosed;
   renderMorning();
   $("settings").showModal();
@@ -924,30 +936,16 @@ $("settings").addEventListener("close", () => {
 });
 
 // ============================ Утреннее уведомление ============================
-/* Телефон подписывается на push (Web Push), а GitHub Actions каждое утро (~6:30 по Берлину)
- * запрашивает цены и присылает уведомление. Подписка + точка поиска передаются в GitHub
- * одним кодом (секрет TK_MORNING). Скрипт: .github/morning.py, расписание: .github/workflows/morning.yml */
+/* Телефон подписывается на push (Web Push) и отправляет подписку + точку поиска на свой сервер.
+ * Сервер (server/cron.js) каждые 15 минут рассылает уведомления тем, у кого наступило выбранное время. */
 const VAPID_PUBLIC = "BMXe11Zm--Gd0mpMJgePpfEgmvzUmKWGezB5rLUd2zl2pZbKddh4l6Gzprx7PZgogA5AmqHK5neCCfJJ3jUzlHA";
-
-/** Та же логика, что в .github/morning.py: 2 самые дешёвые (сначала открытые, при равной цене — ближе). */
-function morningMessage(stations, fuel, label) {
-  const withPrice = stations.filter(s => priceOf(s, fuel) != null);
-  const sorted = [...withPrice].sort((a, b) =>
-    (b.isOpen - a.isOpen) || (priceOf(a, fuel) - priceOf(b, fuel)) || (a.dist - b.dist));
-  const top = sorted.slice(0, 2);
-  const short = FUELS.find(f => f.id === fuel)?.short || fuel;
-  const line = (s, i) => `${i + 1}) ${s.brand || s.name} — ${priceOf(s, fuel).toFixed(3).replace(".", ",")} € · ` +
-    `${fmtKm(s.dist)}${s.isOpen ? "" : t("mClosed")}`;
-  return {
-    title: `⛽ ${short} — ${label}`,
-    body: top.length ? top.map(line).join("\n") : t("mNoPrices"),
-    route: top[0] ? gmapsUrl(top[0]) : null,
-    action: t("mRoute"),
-  };
-}
+const MORNING_TIMES = Array.from({ length: 21 }, (_, i) => {   // 05:00 … 10:00, шаг 15 минут
+  const m = 5 * 60 + i * 15;
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+});
 
 const b64urlToBytes = s => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
-const utf8ToB64 = s => btoa(String.fromCharCode(...new TextEncoder().encode(s)));
+const sameKey = (a, b) => a && b && a.byteLength === b.byteLength && new Uint8Array(a).every((v, i) => v === b[i]);
 
 function morningPoint() {
   const c = state.center;
@@ -956,59 +954,85 @@ function morningPoint() {
     label: c.kind === "location" ? t("nearHome") : c.label, home: c.kind === "location",
     fuel: state.fuel, radius: state.radius, lang: LANG };
 }
+const pointText = p => `${p.home ? t("curLoc") : p.label} · ${FUELS.find(f => f.id === p.fuel)?.short} · ${p.radius} ${t("km")}`;
+
+async function api(path, body) {
+  let resp;
+  try {
+    resp = await fetch(`${API_BASE}/api/${path}`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    });
+  } catch { throw new Error(t("mServerErr")); }
+  const data = await resp.json().catch(() => ({}));
+  if (resp.status === 429) throw new Error(t("mTooOften"));
+  if (!resp.ok || data.ok === false) throw new Error(t("mServerErr"));
+  return data;
+}
 
 function renderMorning() {
-  const p = morningPoint();
-  const short = p && (FUELS.find(f => f.id === p.fuel)?.short);
-  $("mPoint").textContent = p
-    ? `📍 ${p.home ? t("curLoc") : p.label} · ${short} · ${p.radius} ${t("km")}`
-    : t("mNeedSearch");
-  $("mEnable").disabled = !p;
   const saved = store.get("tk.morning", null);
-  $("mResult").hidden = !saved;
-  if (saved) $("mCode").value = saved.code;
-  $("mMsg").textContent = saved ? t("mCreated", { t: fmtTime(saved.at), p: saved.point }) : "";
-  if (!("PushManager" in window) || !("serviceWorker" in navigator)) {
-    $("mEnable").disabled = true;
-    $("mMsg").textContent = t("mUnsupported");
-  }
+  const p = morningPoint();
+  const sel = $("mTime");
+  if (!sel.options.length) sel.innerHTML = MORNING_TIMES.map(x => `<option>${x}</option>`).join("");
+  sel.value = saved?.time || "06:30";
+  $("mWeekends").checked = saved ? saved.weekends !== false : true;
+  $("mPoint").textContent = p ? `📍 ${pointText(p)}` : t("mNeedSearch");
+  $("mOn").hidden = !saved;
+  $("mEnable").textContent = t(saved ? "mSave" : "mEnable");
+  $("mStatus").textContent = saved ? t("mOnStatus", { p: saved.point, time: saved.time }) : "";
+  $("mMsg").textContent = "";
+  const supported = "PushManager" in window && "serviceWorker" in navigator && "Notification" in window;
+  $("mEnable").disabled = !p || !supported || !HAS_SERVER;
+  if (!supported) $("mMsg").textContent = t("mUnsupported");
+  else if (!HAS_SERVER) $("mMsg").textContent = t("mNoServer");
+}
+
+async function pushSubscription(create) {
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (sub && !sameKey(sub.options?.applicationServerKey, b64urlToBytes(VAPID_PUBLIC))) { await sub.unsubscribe(); sub = null; }
+  if (!sub && create) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64urlToBytes(VAPID_PUBLIC) });
+  return sub;
 }
 
 async function enableMorning() {
   const p = morningPoint();
   if (!p) return;
+  $("mEnable").disabled = true;
   $("mMsg").textContent = t("mAsking");
   try {
-    const perm = await Notification.requestPermission();
-    if (perm !== "granted") throw new Error(t("mDenied"));
-    const reg = await navigator.serviceWorker.ready;
-    let sub = await reg.pushManager.getSubscription();
-    const key = sub?.options?.applicationServerKey;
-    if (sub && key && btoa(String.fromCharCode(...new Uint8Array(key))) !== btoa(String.fromCharCode(...b64urlToBytes(VAPID_PUBLIC)))) {
-      await sub.unsubscribe(); sub = null;
-    }
-    sub ||= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64urlToBytes(VAPID_PUBLIC) });
-    const cfg = { v: 1, sub: sub.toJSON(), ...p, weekends: $("mWeekends").checked };
-    const short = FUELS.find(f => f.id === p.fuel)?.short;
-    store.set("tk.morning", { code: utf8ToB64(JSON.stringify(cfg)), at: Date.now(), point: `${p.label}, ${short}, ${p.radius} ${t("km")}` });
+    if (await Notification.requestPermission() !== "granted") throw new Error(t("mDenied"));
+    const sub = await pushSubscription(true);
+    const time = $("mTime").value, weekends = $("mWeekends").checked;
+    await api("subscribe", { sub: sub.toJSON(), ...p, time, weekends });
+    store.set("tk.morning", { point: pointText(p), time, weekends, at: Date.now() });
     renderMorning();
-    $("mCode").select();
+    toast(t("mEnabled", { time }));
   } catch (e) {
     $("mMsg").textContent = t("mFail", { m: e.message });
+  } finally {
+    $("mEnable").disabled = false;
   }
 }
 
 $("mEnable").onclick = enableMorning;
-$("mCopy").onclick = async () => {
-  try { await navigator.clipboard.writeText($("mCode").value); toast(t("copied")); }
-  catch { $("mCode").select(); document.execCommand("copy"); toast(t("copied")); }
-};
 $("mTest").onclick = async () => {
-  if (Notification.permission !== "granted") { toast(t("enableFirst")); return; }
-  const p = morningPoint();
-  const msg = morningMessage(visibleStations(), state.fuel, p?.label || "");
-  const reg = await navigator.serviceWorker.ready;
-  reg.active?.postMessage({ type: "test-push", payload: msg });
+  try {
+    const sub = await pushSubscription(false);
+    if (!sub) throw new Error(t("enableFirst"));
+    await api("test", { endpoint: sub.endpoint });
+    toast(t("mSent"));
+  } catch (e) { toast(e.message); }
+};
+$("mOff").onclick = async () => {
+  try {
+    const sub = await pushSubscription(false);
+    if (sub) { await api("unsubscribe", { endpoint: sub.endpoint }).catch(() => {}); await sub.unsubscribe(); }
+  } finally {
+    localStorage.removeItem("tk.morning");
+    renderMorning();
+    toast(t("mOffDone"));
+  }
 };
 
 // ============================ Язык ============================

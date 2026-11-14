@@ -1,0 +1,9 @@
+# Сайт TankKarte на Cloudflare Pages (статические файлы + functions/api). Развёртывается из .github/workflows/deploy.yml.
+name = "tankkarte"
+pages_build_output_dir = "."
+compatibility_date = "2025-06-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tankkarte"
+database_id = "__D1_ID__"   # подставляется при развёртывании

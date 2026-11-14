@@ -1,0 +1,13 @@
+# Воркер расписания (утренние уведомления). Развёртывается из .github/workflows/deploy.yml.
+name = "tankkarte-cron"
+main = "cron.js"
+compatibility_date = "2025-06-01"
+workers_dev = false
+
+[triggers]
+crons = ["*/15 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tankkarte"
+database_id = "__D1_ID__"   # подставляется при развёртывании

@@ -238,8 +238,6 @@ dialog { max-height: calc(100dvh - 24px); overflow-y: auto; }
 .morning .hint { margin: 6px 0; }
 .m-point { margin: 4px 0 8px; font-weight: 800; font-size: 14px; }
 .btn.wide { display: block; width: 100%; margin-top: 6px; }
-#mCode { width: 100%; box-sizing: border-box; font: 11px ui-monospace, monospace; border: 2px solid var(--line);
-  border-radius: 12px; padding: 8px; background: var(--surface-2); color: var(--text); resize: none; word-break: break-all; }
 .m-actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
 .m-actions .btn { flex: 1; padding: 10px 12px; }
 .field { display: grid; gap: 6px; font-size: 13px; color: var(--muted); font-weight: 700; }
@@ -269,3 +267,11 @@ dialog { max-height: calc(100dvh - 24px); overflow-y: auto; }
   .leaflet-top.leaflet-right { top: 0; }
   .toast { bottom: 24px; }
 }
+
+/* утреннее уведомление: время + выходные, статус */
+.m-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 4px 0 2px; }
+.m-time { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+.m-time select { font: 700 15px system-ui, sans-serif; padding: 7px 10px; border: 2px solid var(--line); border-radius: 12px;
+  background: var(--surface-2); color: var(--text); }
+.m-status { margin: 10px 0 4px; font-weight: 800; color: var(--ok, #1f9d3a); }
+.ico-btn svg { display: block; }
