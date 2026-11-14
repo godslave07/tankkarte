@@ -2,7 +2,7 @@
  * Используется функциями сайта (functions/api/*) и воркером расписания (server/cron.js).
  * Переменные окружения: DB (D1), TK_API_KEY, VAPID_PUBLIC, VAPID_PRIVATE — секреты Cloudflare. */
 
-export const APP_URL = "https://godslave07.github.io/tankkarte/";
+export const APP_URL = "https://tankkarte.pages.dev/";
 const TK_URL = "https://creativecommons.tankerkoenig.de/api/v4/stations/search";
 const PRICE_TTL_MS = 5 * 60 * 1000;          // Tankerkönig: не чаще раза в 5 минут на одну точку
 export const RADII = [5, 10, 15, 25];

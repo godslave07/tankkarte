@@ -10,7 +10,7 @@ const API_URL = "https://creativecommons.tankerkoenig.de/api/v4/stations/search"
  * (GitHub Pages) и при локальной разработке — по REMOTE_API. Пока REMOTE_API пуст и мы не на сервере,
  * цены берутся напрямую у Tankerkönig, а уведомления недоступны.
  */
-const REMOTE_API = "";
+const REMOTE_API = "https://tankkarte.pages.dev";
 const ON_SERVER = !/(^|\.)github\.io$|^localhost$|^127\./.test(location.hostname);
 const API_BASE = ON_SERVER ? "" : REMOTE_API;
 const HAS_SERVER = ON_SERVER || !!REMOTE_API;
